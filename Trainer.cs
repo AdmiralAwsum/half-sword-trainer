@@ -24,6 +24,7 @@ internal sealed class Trainer : IDisposable
 {
     private readonly Memory memory = new(true);
     private readonly Unreal unreal;
+    private sealed record ForceWinBindings(GameObject? GameMode, List<GameObject> Hostiles, List<GameObject> Controllers);
     private sealed record CombatBindings(GameObject Controller, GameObject Player);
     private CombatBindings? combat;
     private GameObject? localController;
@@ -200,11 +201,107 @@ internal sealed class Trainer : IDisposable
 
     private void SetInvulnerable(bool enabled)
     {
-        var p = unreal.Property(player, "Invulnerable", "BoolProperty");
+        var p = BooleanProperty(player, "Invulnerable");
+        Put(player, p, [enabled ? (byte)1 : (byte)0], true);
+    }
+
+    private GameProperty BooleanProperty(GameObject obj, string name)
+    {
+        var p = unreal.Property(obj, name, "BoolProperty");
         var layout = memory.Read(p.Metadata + 0x70, 4);
         if (p.Size != 1 || layout[1] != 0 || layout[2] != 1 || layout[3] != 255)
-            throw new InvalidOperationException("Unsupported Invulnerable boolean layout.");
-        Put(player, p, [enabled ? (byte)1 : (byte)0], true);
+            throw new InvalidOperationException($"Unsupported {name} boolean layout.");
+        return p;
+    }
+
+    private void WriteBool(GameObject obj, string name, bool value) =>
+        Put(obj, BooleanProperty(obj, name), [value ? (byte)1 : (byte)0]);
+
+    private ForceWinBindings ResolveForceWinBindings()
+    {
+        EnsurePlayer();
+        var all = unreal.AllObjects();
+        var gameModes = all.Where(o => o.Outer == player.Outer && unreal.IsA(o, "BP_HalfSwordGameMode_C")).ToList();
+        if (gameModes.Count > 1) throw new InvalidOperationException("Multiple match game modes found in the active level.");
+        var gameMode = gameModes.SingleOrDefault();
+        var hostiles = all.Where(o => o.Address != player.Address && o.Outer == player.Outer &&
+            unreal.IsA(o, "Willie_BP_C") && Hostile(o)).ToList();
+        var controllers = all.Where(o => o.Outer == player.Outer && unreal.IsA(o, "AI_BP_C")).ToList();
+
+        foreach (var character in hostiles.Append(player))
+        {
+            foreach (string name in new[] { "Invulnerable", "Give Up", "Vertex Paint Saving Initiated", "Spawn On Death Blood Emitter" })
+                _ = BooleanProperty(character, name);
+            foreach (string name in new[] { "Health", "Head Health", "Neck Health", "Heart Health", "Consciousness", "Consciousness Cap" })
+                _ = DoubleProperty(character, name);
+        }
+        foreach (var ai in controllers)
+            foreach (string name in new[] { "My Fallen", "My Give Up", "DED" })
+                _ = BooleanProperty(ai, name);
+        _ = BooleanProperty(player, "Match Won (Player)");
+        if (gameMode != null)
+        {
+            var enemyCount = unreal.Property(gameMode, "Enemy Count", "IntProperty");
+            if (enemyCount.Size != 4) throw new InvalidOperationException("Unsupported match enemy counter size.");
+            _ = BooleanProperty(gameMode, "All Enemies Dead");
+            _ = BooleanProperty(gameMode, "Match Won");
+        }
+        return new(gameMode, hostiles, controllers);
+    }
+
+    public void ForceWin()
+    {
+        var bindings = ResolveForceWinBindings();
+        if (bindings.Hostiles.Count > 0)
+        {
+            foreach (var opponent in bindings.Hostiles)
+            {
+                unreal.EnsureLive(opponent);
+                WriteBool(opponent, "Invulnerable", false);
+                WriteBool(opponent, "Give Up", false);
+                WriteBool(opponent, "Vertex Paint Saving Initiated", false);
+                WriteBool(opponent, "Spawn On Death Blood Emitter", false);
+                Set(opponent, "Health", 50);
+                Set(opponent, "Head Health", 50);
+                Set(opponent, "Neck Health", 50);
+                Set(opponent, "Heart Health", 50);
+                Set(opponent, "Consciousness", 50);
+                Set(opponent, "Consciousness Cap", 100);
+            }
+            foreach (var ai in bindings.Controllers)
+            {
+                unreal.EnsureLive(ai);
+                WriteBool(ai, "My Fallen", false);
+                WriteBool(ai, "My Give Up", false);
+                WriteBool(ai, "DED", false);
+            }
+            Thread.Sleep(300);
+            EnsurePlayer();
+            foreach (var opponent in bindings.Hostiles)
+            {
+                unreal.EnsureLive(opponent);
+                WriteBool(opponent, "Invulnerable", false);
+                Set(opponent, "Health", -100);
+                Set(opponent, "Head Health", -100);
+                Set(opponent, "Neck Health", -100);
+                Set(opponent, "Heart Health", -100);
+                Set(opponent, "Consciousness", -100);
+            }
+            Thread.Sleep(500);
+        }
+
+        EnsurePlayer();
+        WriteBool(player, "Vertex Paint Saving Initiated", false);
+        WriteBool(player, "Match Won (Player)", true);
+        if (bindings.GameMode is { } gameMode)
+        {
+            unreal.EnsureLive(gameMode);
+            var enemyCount = unreal.Property(gameMode, "Enemy Count", "IntProperty");
+            Put(gameMode, enemyCount, BitConverter.GetBytes(0));
+            WriteBool(gameMode, "All Enemies Dead", true);
+            WriteBool(gameMode, "Match Won", true);
+        }
+        notify("Forced win / unstuck current match.");
     }
 
     private void Restore(string name)
@@ -271,6 +368,7 @@ internal sealed class Trainer : IDisposable
             {
                 unreal.EnsureLive(opponent);
                 if (!Hostile(opponent)) continue;
+                WriteBool(opponent, "Invulnerable", false);
                 double health = Number(opponent, "Health");
                 if (health <= 0) continue;
                 Set(opponent, "Health", Math.Min(health, 1));
@@ -329,6 +427,8 @@ internal sealed class Trainer : IDisposable
         var hostiles = unreal.AllObjects().Where(o => o.Address != player.Address &&
             o.Outer == player.Outer && unreal.IsA(o, "Willie_BP_C") && Hostile(o)).ToList();
         log.WriteLine($"Hostile NPCs resolved: {hostiles.Count}; player excluded; same-team allies excluded.");
+        var matchBindings = ResolveForceWinBindings();
+        log.WriteLine($"PASS force-win bindings: {matchBindings.Hostiles.Count} hostile character(s), {matchBindings.Controllers.Count} AI controller(s), game mode {(matchBindings.GameMode == null ? "optional/unavailable" : "validated")}.");
         if (!writeTest) return;
         var saved = new List<(GameObject Object, GameProperty Property, byte[] Value)>();
         void Check(GameObject obj, GameProperty property, byte[] expected)

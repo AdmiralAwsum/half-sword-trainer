@@ -1,6 +1,8 @@
 # Half Sword Trainer - The Fool's Favour
 
-A medieval jester-themed standalone trainer for **Half Sword 0.7.2**. Trainer version **1.1.0**.
+A medieval jester-themed standalone trainer for **Half Sword 0.7.2**. Trainer version **1.2.0**.
+
+See [CHANGELOG.md](./CHANGELOG.md) for version history.
 
 ## Download
 
@@ -53,7 +55,16 @@ Only one game instance may be running.
 * **Easy Win**: holds living hostile NPCs in the player's level at no more than
   1 health/consciousness and 0 stamina. Finish them normally. Does not grant a
   victory/reward directly. Excludes the possessed player and same-team allies;
-  team 0 uses the game's free-for-all convention.
+  team 0 uses the game's free-for-all convention. Hostile NPC invulnerability
+  is cleared while this option is active so defeated fighters can complete
+  their normal death transition; NPC changes are not restored.
+* **UNSTICK MATCH / Force Win**: a one-shot combat-only action. Clears stuck
+  death/vertex-paint flags, briefly restores hostile fighters so the game can
+  re-run their death transition, then marks the active match won and all
+  enemies dead. This directly changes current match state and cannot be undone;
+  it does not promise career rewards or tournament progression. It requires a
+  validated active fighter and targets only characters and AI controllers in
+  the current level.
 * **Game Speed**: check to hold global time dilation at 0.10–5.00x. Large values
   can destabilize physics.
 * **Muscle Power Value**: check to hold the raw muscle value at 0–10,000.
@@ -133,7 +144,8 @@ Get-Content .\dist\verification.txt
 
 `--self-test` checks pre-game selection, linking/lost-session retention, disarm,
 and reputation input/floor behavior without accessing the game.
-`--verify` validates live bindings and NPC targeting without writing.
+`--verify` validates live bindings, NPC targeting, and Force Win property
+bindings without writing.
 `--test-writes` briefly tests player stats, invulnerability, funds, muscle
 power, fitness, and speed with immediate readback, then restores and verifies
 original values. Without a possessed fighter, it tests menu funds and rank

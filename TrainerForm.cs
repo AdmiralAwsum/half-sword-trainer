@@ -5,6 +5,14 @@ namespace HalfSwordTrainer;
 internal sealed class TrainerForm : Form
 {
     private readonly Button attach = new ActionButton { Text = "LINK TO GAME", AccessibleName = "Attach to running game", AutoSize = true, Primary = true };
+    private readonly Button forceWinButton = new ActionButton
+    {
+        Text = "UNSTICK MATCH",
+        AccessibleName = "Force Win / Unstick Match",
+        AccessibleDescription = "Resets stuck death flags, finishes hostile characters, and marks the active match won. This cannot be undone.",
+        AutoSize = true,
+        Enabled = false
+    };
     private readonly Button stop = new ActionButton { Text = "DISARM ALL", AccessibleName = "STOP / Restore", AutoSize = true, Enabled = false };
     private readonly Label connection = new() { Text = "Choose your options. Waiting for the game...", AutoSize = true };
     private readonly Label values = new() { Text = "Local session  /  Game build 0.7.2", AutoSize = true };
@@ -31,6 +39,7 @@ internal sealed class TrainerForm : Form
     private readonly Panel controls = new() { AutoSize = true, Dock = DockStyle.Fill };
     private volatile TrainerOptions options = new();
     private int pendingFunds = -1;
+    private int pendingForceWin;
     private CancellationTokenSource? cancellation;
     private Task? worker;
     private bool closing;
@@ -100,7 +109,7 @@ internal sealed class TrainerForm : Form
         root.Controls.Add(body, 0, 1);
         root.Controls.Add(BuildFooter(), 0, 2);
         Controls.Add(root);
-        foreach (var button in new[] { attach, stop, fundsButton })
+        foreach (var button in new[] { attach, stop, fundsButton, forceWinButton })
         {
             button.FlatStyle = FlatStyle.Flat;
             button.FlatAppearance.BorderColor = Theme.Border;
@@ -137,6 +146,12 @@ internal sealed class TrainerForm : Form
         {
             Interlocked.Exchange(ref pendingFunds, decimal.ToInt32(fundsValue.Value));
             SetConnection("Funds write queued...", "APPLYING", Theme.Gold);
+        };
+        forceWinButton.Click += (_, _) =>
+        {
+            Interlocked.Exchange(ref pendingForceWin, 1);
+            forceWinButton.Enabled = false;
+            SetConnection("Unsticking the current match...", "APPLYING", Theme.Gold);
         };
         FormClosing += OnClosing;
         Shown += async (_, _) =>
@@ -227,7 +242,7 @@ internal sealed class TrainerForm : Form
         badge.Font = new Font("Segoe UI", 7.5f, FontStyle.Bold);
         badge.ForeColor = Theme.Muted;
         badge.BackColor = Theme.Surface;
-        actions.Controls.AddRange([stop, attach, badge]);
+        actions.Controls.AddRange([stop, forceWinButton, attach, badge]);
         header.Controls.Add(actions, 1, 0);
         return header;
     }
@@ -301,6 +316,7 @@ internal sealed class TrainerForm : Form
     private void SetFeatureAvailability(bool available)
     {
         fundsButton.Enabled = available;
+        if (!available) forceWinButton.Enabled = false;
     }
 
     private CheckBox[] FeatureToggles => [invulnerable, health, stamina, consciousness, pain, easyWin, speed, muscle,
@@ -309,6 +325,7 @@ internal sealed class TrainerForm : Form
     private void ShowStatus(TrainerStatus status)
     {
         SetConnection(status.Message, status.CombatReady ? "IN THE ARENA" : "OPTIONS ARMED", Theme.Green);
+        forceWinButton.Enabled = status.CombatReady;
         healthDisplay.Value = status.Health;
         staminaDisplay.Value = status.Stamina;
         consciousnessDisplay.Value = status.Consciousness;
@@ -374,6 +391,11 @@ internal sealed class TrainerForm : Form
                         trainer.Apply(options);
                         int funds = Interlocked.Exchange(ref pendingFunds, -1);
                         if (funds >= 0) trainer.SetFunds(funds);
+                        if (Interlocked.Exchange(ref pendingForceWin, 0) == 1)
+                        {
+                            trainer.ForceWin();
+                            nextStatus = DateTime.MinValue;
+                        }
                         if (DateTime.UtcNow >= nextStatus)
                         {
                             var status = trainer.Status();
@@ -403,6 +425,7 @@ internal sealed class TrainerForm : Form
                         }
                         waitingState = state;
                         Interlocked.Exchange(ref pendingFunds, -1);
+                        Interlocked.Exchange(ref pendingForceWin, 0);
                         if (trainer != null)
                         {
                             backupPath = trainer.BackupPath;
@@ -437,6 +460,7 @@ internal sealed class TrainerForm : Form
         cancellation = null;
         worker = null;
         pendingFunds = -1;
+        pendingForceWin = 0;
         if (disarm)
             foreach (var toggle in FeatureToggles) toggle.Checked = false;
         SetConnection("All features off. Link to the game when you are ready.", "DISARMED", Theme.Muted);
@@ -451,6 +475,12 @@ internal sealed class TrainerForm : Form
         if (form.FeatureToggles.Any(toggle => !toggle.Enabled) || !form.speedValue.Enabled ||
             !form.muscleValue.Enabled || !form.reputationValue.Enabled || form.fundsButton.Enabled)
             throw new InvalidOperationException("Pre-game options or session-only funds availability are incorrect.");
+        form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 35, 0, 1, 0, false, 0, 1, 0));
+        if (form.forceWinButton.Enabled) throw new InvalidOperationException("Force Win is enabled without an active fighter.");
+        form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 35, 0, 1, 0, true, 0, 1, 0));
+        if (!form.forceWinButton.Enabled) throw new InvalidOperationException("Force Win is disabled with an active fighter.");
+        form.SetFeatureAvailability(false);
+        if (form.forceWinButton.Enabled) throw new InvalidOperationException("Force Win remains enabled after losing the game session.");
         foreach (var toggle in form.FeatureToggles) toggle.Checked = true;
         form.speedValue.Value = 1.75m;
         form.muscleValue.Value = 82;
@@ -481,6 +511,7 @@ internal sealed class TrainerForm : Form
         if (reputationOptions.ReputationTarget(45) != 1500 || reputationOptions.ReputationTarget(2400) != 2400)
             throw new InvalidOperationException("Reputation floor would lower earned progress or fail to accelerate a low rank.");
         log.WriteLine("PASS reputation rejects out-of-range input and never reduces earned progress.");
+        log.WriteLine("PASS Force Win button is enabled only for a live combat-ready fighter.");
     }
 
     private void Post(Action action)

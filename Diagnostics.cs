@@ -85,7 +85,8 @@ internal static class Diagnostics
                     "ObjectProperty" => unreal.ObjectName(memory.Read<long>(obj.Address + p.Offset)),
                     _ => p.Size <= 80 ? Convert.ToHexString(memory.Read(obj.Address + p.Offset, p.Size)) : ""
                 };
-                log.WriteLine($" {p.Offset:X} {p.Type} {p.Name} [{p.Size}] = {value} meta={p.Metadata:X}");
+                string boolLayout = p.Type == "BoolProperty" ? $" bool={Convert.ToHexString(memory.Read(p.Metadata + 0x70, 4))}" : "";
+                log.WriteLine($" {p.Offset:X} {p.Type} {p.Name} [{p.Size}] = {value} meta={p.Metadata:X}{boolLayout}");
                 if (p.Type == "StructProperty" && (p.Name.Contains("Rank") || p.Name.Contains("Reput")))
                 {
                     long structure = memory.Read<long>(p.Metadata + 0x70);
@@ -101,6 +102,30 @@ internal static class Diagnostics
             if (matches.Count == 0) continue;
             log.WriteLine($"TYPE {type.Name} {type.Address:X}");
             foreach (var p in matches) log.WriteLine($" {p.Offset:X} {p.Type} {p.Name} [{p.Size}]");
+        }
+        foreach (var obj in all.Where(o =>
+            unreal.ObjectName(o.Class) is "BP_HalfSwordGameMode_C" or "AI_BP_C" or "Willie_BP_C")
+            .Take(24))
+        {
+            string kind = unreal.ObjectName(obj.Class);
+            log.WriteLine($"MATCH-CONTROL {kind} {obj.Name} {obj.Address:X} outer={unreal.ObjectName(obj.Outer)}");
+            foreach (var p in unreal.Properties(obj.Class).Where(p =>
+                kind == "BP_HalfSwordGameMode_C" ||
+                kind == "AI_BP_C" ||
+                p.Name is "Invulnerable" or "Give Up" or "Vertex Paint Saving Initiated" or
+                    "Spawn On Death Blood Emitter" or "Health" or "Head Health" or "Neck Health" or
+                    "Heart Health" or "Consciousness" or "Consciousness Cap" or "Match Won (Player)"))
+            {
+                string value = p.Type switch
+                {
+                    "DoubleProperty" => memory.Read<double>(obj.Address + p.Offset).ToString("G"),
+                    "IntProperty" => memory.Read<int>(obj.Address + p.Offset).ToString(),
+                    "BoolProperty" when p.Size == 1 => memory.Read<byte>(obj.Address + p.Offset).ToString(),
+                    _ => ""
+                };
+                string boolLayout = p.Type == "BoolProperty" ? $" bool={Convert.ToHexString(memory.Read(p.Metadata + 0x70, 4))}" : "";
+                log.WriteLine($" {p.Offset:X} {p.Type} {p.Name} [{p.Size}] = {value} meta={p.Metadata:X}{boolLayout}");
+            }
         }
     }
 }
