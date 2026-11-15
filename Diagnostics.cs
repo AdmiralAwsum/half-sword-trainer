@@ -10,7 +10,7 @@ internal static class Diagnostics
         var fields = all.Where(o => o.Name == "GI_Settings_C" && unreal.ObjectName(o.Class) == "BlueprintGeneratedClass")
             .Concat(all.Where(o => o.Name == "Willie_BP_C" && unreal.ObjectName(o.Class) == "BlueprintGeneratedClass"))
             .SelectMany(o => unreal.Properties(o.Address))
-            .Where(p => p.Name is "Reputation on Rank" or "Exhaustion" or "Temperature")
+            .Where(p => p.Name is "Reputation on Rank" or "Exhaustion" or "Temperature" or "Muscle Power" or "Muscle Rate")
             .DistinctBy(p => p.Metadata).ToList();
         var objectNames = all.ToDictionary(o => o.Address, o => o.Name);
         foreach (var obj in all)
@@ -23,6 +23,18 @@ internal static class Diagnostics
                 if (count > 0 && count < 2000000)
                 {
                     var script = memory.Read(BitConverter.ToInt64(header), count);
+                    if (obj.Name == "Muscle Motor")
+                    {
+                        var propertyNames = unreal.Properties(obj.Address).Concat(unreal.Properties(obj.Outer))
+                            .DistinctBy(p => p.Metadata).ToDictionary(p => p.Metadata, p => p.Name);
+                        log.WriteLine($"MUSCLE-MOTOR {unreal.ObjectName(obj.Outer)} script {Convert.ToHexString(script)}");
+                        for (int j = 0; j + 8 <= script.Length; j++)
+                        {
+                            long ptr = BitConverter.ToInt64(script, j);
+                            if (propertyNames.TryGetValue(ptr, out var propertyName)) log.WriteLine($" MOTOR FIELD {j:X}: {propertyName}");
+                            if (objectNames.TryGetValue(ptr, out var objectName)) log.WriteLine($" MOTOR CALL {j:X}: {objectName}");
+                        }
+                    }
                     if (obj.Name == "Generate Random Combat Event")
                     {
                         var propertyNames = unreal.Properties(obj.Address).Concat(fields).DistinctBy(p => p.Metadata)
@@ -47,10 +59,16 @@ internal static class Diagnostics
                             int at = start + relative;
                             int from = Math.Max(0, at - 70), to = Math.Min(script.Length, at + 100);
                             log.WriteLine($"REFERENCE {field.Name} in {unreal.ObjectName(obj.Outer)}.{obj.Name} at {at:X} of {count:X}: {Convert.ToHexString(script.AsSpan(from, to - from))}");
+                            var referenceProperties = field.Name == "Muscle Rate"
+                                ? unreal.Properties(obj.Address).Concat(unreal.Properties(obj.Outer)).DistinctBy(p => p.Metadata)
+                                    .ToDictionary(p => p.Metadata, p => p.Name)
+                                : null;
                             for (int j = from; j + 8 <= to; j++)
                             {
                                 long ptr = BitConverter.ToInt64(script, j);
                                 if (objectNames.TryGetValue(ptr, out var text)) log.WriteLine($" CALL {j:X}: {text}");
+                                if (referenceProperties?.TryGetValue(ptr, out var propertyName) == true)
+                                    log.WriteLine($" FIELD {j:X}: {propertyName}");
                                 if (script[j] == 0x1e && j + 5 <= to) log.WriteLine($" FLOAT {j:X}: {BitConverter.ToSingle(script, j + 1):G}");
                                 if (script[j] == 0x37 && j + 9 <= to) log.WriteLine($" DOUBLE {j:X}: {BitConverter.ToDouble(script, j + 1):G}");
                                 if (script[j] == 0x1d && j + 5 <= to) log.WriteLine($" INT {j:X}: {BitConverter.ToInt32(script, j + 1)}");
@@ -75,7 +93,7 @@ internal static class Diagnostics
             foreach (var p in unreal.Properties(obj.Class))
             {
                 if (kind == "Willie_BP_C" && !System.Text.RegularExpressions.Regex.IsMatch(p.Name,
-                    "Stamina|Exhaust|Temper|Fatigue|Recover|Rest|Heat|Cold|Player|Controller", System.Text.RegularExpressions.RegexOptions.IgnoreCase)) continue;
+                    "Stamina|Exhaust|Temper|Fatigue|Recover|Rest|Heat|Cold|Player|Controller|Muscle|Strength|Morph|Physique|Fat|Body|Scale|Height|Mass|Weight|Character|Willie", System.Text.RegularExpressions.RegexOptions.IgnoreCase)) continue;
                 string value = p.Type switch
                 {
                     "DoubleProperty" => memory.Read<double>(obj.Address + p.Offset).ToString("G"),
@@ -87,18 +105,23 @@ internal static class Diagnostics
                 };
                 string boolLayout = p.Type == "BoolProperty" ? $" bool={Convert.ToHexString(memory.Read(p.Metadata + 0x70, 4))}" : "";
                 log.WriteLine($" {p.Offset:X} {p.Type} {p.Name} [{p.Size}] = {value} meta={p.Metadata:X}{boolLayout}");
-                if (p.Type == "StructProperty" && (p.Name.Contains("Rank") || p.Name.Contains("Reput")))
+                if (p.Type == "StructProperty" && System.Text.RegularExpressions.Regex.IsMatch(p.Name,
+                    "Rank|Reput|Character|Body|Appearance|Physique", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                 {
                     long structure = memory.Read<long>(p.Metadata + 0x70);
                     foreach (var member in unreal.Properties(structure))
-                        log.WriteLine($"   MEMBER {member.Offset:X} {member.Type} {member.Name} [{member.Size}]");
+                    {
+                        string memberValue = member.Type == "DoubleProperty"
+                            ? $" = {memory.Read<double>(obj.Address + p.Offset + member.Offset):G}" : "";
+                        log.WriteLine($"   MEMBER {member.Offset:X} {member.Type} {member.Name} [{member.Size}]{memberValue}");
+                    }
                 }
             }
         }
         foreach (var type in all.Where(o => unreal.ObjectName(o.Class) == "BlueprintGeneratedClass"))
         {
             var matches = unreal.Properties(type.Address).Where(p => System.Text.RegularExpressions.Regex.IsMatch(p.Name,
-                "Reputation|Exhaustion|Temperature|Tournament|Fatigue", System.Text.RegularExpressions.RegexOptions.IgnoreCase)).ToList();
+                "Reputation|Exhaustion|Temperature|Tournament|Fatigue|Muscle|Strength|Morph|Physique|Fatness|Body.?Size|Body.?Scale|Body.?Type", System.Text.RegularExpressions.RegexOptions.IgnoreCase)).ToList();
             if (matches.Count == 0) continue;
             log.WriteLine($"TYPE {type.Name} {type.Address:X}");
             foreach (var p in matches) log.WriteLine($" {p.Offset:X} {p.Type} {p.Name} [{p.Size}]");

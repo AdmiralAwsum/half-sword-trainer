@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.3.0 - 2026-11-15
+
+- Added a separate, menu-only career physique editor. It updates the next-spawn
+  character source rather than changing a running fighter's morphs and physics
+  independently. Applied values may persist through normal saves.
+- Renamed the old Muscle Power control to Motor Power and clarified that it
+  edits a physics-joint drive parameter, not visible muscle size.
+- Added saved-physique readback, conservative input limits, transition
+  cancellation, and menu-only availability checks.
+- Expanded read-only diagnostics for physique and physics-motor calculations.
+
+Validation: zero-warning Release build and focused self-tests. A live career
+menu edit to 0.5 produced a fresh fighter with Muscle Rate 0.5 and mass scale
+1.125. The player confirmed normal appearance and no rubberbanding in that
+test. The physique card was visually checked at normal and minimum sizes.
+
 ## v1.2.1 - 2026-11-15
 
 - Moved **UNSTICK MATCH** out of the connection controls and beside the live

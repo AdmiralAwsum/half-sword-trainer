@@ -1,6 +1,6 @@
 # Half Sword Trainer - The Fool's Favour
 
-A medieval jester-themed standalone trainer for **Half Sword 0.7.2**. Trainer version **1.2.1**.
+A medieval jester-themed standalone trainer for **Half Sword 0.7.2**. Trainer version **1.3.0**.
 
 See [CHANGELOG.md](./CHANGELOG.md) for version history.
 
@@ -32,12 +32,13 @@ accessibility are retained. The portrait is embedded, so no image files need
 to be installed separately.
 
 Open `HalfSwordTrainer.exe` from an extracted release (or
-`dist\HalfSwordTrainer.exe` after building). Every feature starts OFF, but all
+`dist\current\HalfSwordTrainer.exe` after publishing). Every feature starts OFF, but all
 switches and numeric inputs are available immediately. Select combat features
 before entering a fight: they activate once the local player possesses a
 validated fighter. Funds and rank reputation work in menus once the game
 session is available; game speed works wherever an active world is available.
-Muscle power is fighter-specific and waits for possession.
+Motor power is fighter-specific and waits for possession. Career physique is a
+separate, menu-only edit used by the next character spawn.
 Run at the same elevation as the game.
 Only one game instance may be running.
 
@@ -68,8 +69,23 @@ Only one game instance may be running.
   the current level.
 * **Game Speed**: check to hold global time dilation at 0.10–5.00x. Large values
   can destabilize physics.
-* **Muscle Power Value**: check to hold the raw muscle value at 0–10,000.
-  The observed player default in this build is 35. Start with small changes.
+* **Motor Power** (formerly Muscle Power Value): experimental override of the
+  game's raw `Muscle Power` physics-joint drive parameter at 0–10,000, not a
+  muscle-size or general character-strength control. The observed default is
+  **35**. Zero or extreme values may destabilize physics; leave this OFF unless
+  intentionally experimenting. Disabling restores the previous raw value when
+  possible, but cannot undo existing simulation motion or cached game state.
+* **Career Physique**: a separate one-shot body-build editor with a conservative
+  0–1 range: 0 lean, 0.5 the character default, 1 muscular. Leave the fight, apply
+  **SET** in a career menu, then spawn into a new match. The readback shows the
+  saved career value even when an existing character is outside the editor's
+  range; simply viewing it never clamps that value. This changes only
+  `Player Character.Weight` in the game instance, not the current fighter's
+  morphs, mass, or joints. The game rebuilds those together on the next spawn.
+  Body mass and strength-related calculations can change as well as appearance.
+  Free Mode is excluded. It is not a continuous hold, and normal game saves and
+  subsequent character growth can persist or change it. DISARM ALL does not
+  undo an already applied career physique; a save backup is made before writing.
 * **Funds Value**: **Set Funds** writes the live game-instance funds once.
   The UI may update on reopening the relevant menu. Normal game saves may
   persist the change; the trainer does not force a save.
@@ -86,7 +102,8 @@ Only one game instance may be running.
 values. Invulnerability, speed, and muscle power are restored if their objects
 are still valid and the game has not independently changed those values.
 Health/stamina replenishment, fitness changes, NPC injuries, funds, and earned
-rank reputation are not undone. Reputation can persist through normal saves.
+rank reputation and applied career physique are not undone. These can persist
+through normal saves.
 
 The trainer checks Unreal object-array identity and serial numbers before
 writes. A respawn, scene transition, or object collection pauses writes and
@@ -97,8 +114,8 @@ readings displayed as `--`; menu-safe features remain usable. During loading,
 writes pause until validated bindings are available;
 no repeated error dialogs are shown for normal loading. The local-player
 back-reference prevents selecting an old controller retained by the game.
-Queued one-shot funds changes are cancelled on transitions; click Set Funds
-again after reconnection if needed.
+Queued one-shot funds and physique changes are cancelled on transitions; apply
+them again after reconnection if needed.
 
 Restoration skips unloaded objects rather than writing to their old addresses;
 these skips and reconnections are logged. Still-live overrides are restored.
@@ -134,20 +151,24 @@ preserve all selections; match reconnections reuse the session's save backup.
 
 ## Build and verification
 
+Build outputs go in `bin` and `obj`; published builds go in `dist`. Local
+backup and log directories are ignored by Git and must not be included in releases.
+
 ```powershell
 dotnet build .\HalfSwordTrainer.csproj -c Release
-dotnet publish .\HalfSwordTrainer.csproj -c Release -o .\dist
-Start-Process .\dist\HalfSwordTrainer.exe -ArgumentList '--self-test' -Wait
-Get-Content .\dist\verification.txt
-Start-Process .\dist\HalfSwordTrainer.exe -ArgumentList '--verify' -Wait
-Get-Content .\dist\verification.txt
+dotnet publish .\HalfSwordTrainer.csproj -c Release -o .\dist\current
+Start-Process .\dist\current\HalfSwordTrainer.exe -ArgumentList '--self-test' -Wait
+Get-Content .\dist\current\verification.txt
+Start-Process .\dist\current\HalfSwordTrainer.exe -ArgumentList '--verify' -Wait
+Get-Content .\dist\current\verification.txt
 ```
 
 `--self-test` checks pre-game selection, linking/lost-session retention, disarm,
-reputation input/floor behavior, and the match-action layout without accessing
-the game.
+reputation input/floor behavior, physique limits and nested-property bounds,
+menu-only availability, and the match-action layout without accessing the game.
 `--verify` validates live bindings, NPC targeting, and Force Win property
-bindings without writing.
+bindings without writing, and reports the career physique source plus the
+spawned fighter's physique and mass scaling.
 `--test-writes` briefly tests player stats, invulnerability, funds, muscle
 power, fitness, and speed with immediate readback, then restores and verifies
 original values. Without a possessed fighter, it tests menu funds and rank

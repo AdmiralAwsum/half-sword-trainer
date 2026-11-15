@@ -18,7 +18,8 @@ internal sealed record TrainerOptions(bool Invulnerable = false, bool Health = f
 
 internal sealed record TrainerStatus(string Message, double? Health, double? Stamina, double? Consciousness,
     double? Muscle, int Funds, double? Speed, int Opponents, bool CombatReady,
-    double? Exhaustion, double? Temperature, int RankReputation);
+    double? Exhaustion, double? Temperature, int RankReputation,
+    double? CareerPhysique = null, bool PhysiqueEditable = false);
 
 internal sealed class Trainer : IDisposable
 {
@@ -33,6 +34,7 @@ internal sealed class Trainer : IDisposable
     private GameObject player => combat?.Player ?? throw new GameTransitionException("No active fighter.");
     private GameObject settings => world ?? throw new GameTransitionException("Waiting for the active world.");
     private GameObject instance;
+    private GameProperty? careerPhysiqueProperty;
     private DateTime nextCombatScan;
     private List<GameObject> opponents = [];
     private readonly Dictionary<(long Address, string Name), (GameObject Object, GameProperty Property, byte[] Original, byte[] Applied)> overrides = [];
@@ -394,6 +396,62 @@ internal sealed class Trainer : IDisposable
         if (Status().Funds != value) throw new InvalidOperationException("Game did not retain the requested funds value.");
     }
 
+    private GameProperty CareerPhysiqueProperty()
+    {
+        if (careerPhysiqueProperty != null) return careerPhysiqueProperty;
+        var character = unreal.Property(instance, "Player Character", "StructProperty");
+        long structure = memory.Read<long>(character.Metadata + 0x70);
+        var members = unreal.Properties(structure).Where(p =>
+            p.Name.StartsWith("Weight_", StringComparison.Ordinal)).ToList();
+        if (members.Count != 1 || memory.Read<int>(structure + 0x58) != character.Size)
+            throw new InvalidOperationException("Unsupported career character physique layout.");
+        careerPhysiqueProperty = ComposeCareerPhysiqueProperty(character, members[0], memory.Read<int>(instance.Class + 0x58));
+        return careerPhysiqueProperty;
+    }
+
+    internal static GameProperty ComposeCareerPhysiqueProperty(GameProperty character, GameProperty weight, int classSize)
+    {
+        if (character.Name != "Player Character" || character.Type != "StructProperty" ||
+            character.Offset < 0x28 || character.Size < 8 || classSize < character.Offset ||
+            character.Size > classSize - character.Offset ||
+            !weight.Name.StartsWith("Weight_", StringComparison.Ordinal) ||
+            weight.Type != "DoubleProperty" || weight.Size != 8 ||
+            weight.Offset < 0 || weight.Offset > character.Size - weight.Size)
+            throw new InvalidOperationException("Unsupported career character physique layout.");
+        return weight with { Name = "Player Character.Weight", Offset = character.Offset + weight.Offset };
+    }
+
+    private bool CanEditCareerPhysique()
+    {
+        if (combat != null || localController == null) return false;
+        var freeMode = BooleanProperty(instance, "Free Mode Activated");
+        if (memory.Read<byte>(instance.Address + freeMode.Offset) != 0) return false;
+        long pawn = Pointer(localController, "AcknowledgedPawn");
+        if (Pointer(localController, "Pawn") != pawn) return false;
+        return pawn == 0 || !unreal.IsA(unreal.Reference(pawn), "Willie_BP_C");
+    }
+
+    internal static void ValidateCareerPhysique(double value)
+    {
+        if (!double.IsFinite(value) || value is < 0 or > 1)
+            throw new ArgumentOutOfRangeException(nameof(value), "Career physique must be between 0 and 1.");
+    }
+
+    public void SetCareerPhysique(double value)
+    {
+        ValidateCareerPhysique(value);
+        EnsureSession();
+        if (combat == null) BindCombat();
+        if (!CanEditCareerPhysique())
+            throw new GameTransitionException("Physique request cancelled. Apply it from a career menu outside a fight.");
+        var property = CareerPhysiqueProperty();
+        // Change only the spawn source; live morphs, masses, and joints must stay in sync.
+        Put(instance, property, BitConverter.GetBytes(value));
+        if (memory.Read<double>(instance.Address + property.Offset) != value)
+            throw new InvalidOperationException("Game did not retain the requested career physique.");
+        notify($"Career physique set to {value:F2} for the next spawn. No active fighter was changed; normal saves may persist it.");
+    }
+
     public TrainerStatus Status()
     {
         EnsureSession();
@@ -402,20 +460,25 @@ internal sealed class Trainer : IDisposable
         int funds = memory.Read<int>(instance.Address + unreal.Property(instance, "Player Funds", "IntProperty").Offset);
         float? speed = world == null ? null : memory.Read<float>(world.Address + unreal.Property(world, "TimeDilation", "FloatProperty").Offset);
         int reputation = memory.Read<int>(instance.Address + unreal.Property(instance, "Reputation on Rank", "IntProperty").Offset);
+        double physique = memory.Read<double>(instance.Address + CareerPhysiqueProperty().Offset);
         if (funds < 0 || (speed.HasValue && (!float.IsFinite(speed.Value) || speed <= 0)))
             throw new InvalidOperationException("Live funds or game speed validation failed.");
+        if (!double.IsFinite(physique)) throw new InvalidOperationException("Live career physique validation failed.");
         return new(combat == null ? $"Attached to PID {ProcessId} | session ready; waiting for a fighter" :
             $"Attached to PID {ProcessId} | player 0x{player.Address:X}",
             combat == null ? null : Number(player, "Health"),
             combat == null ? null : Number(player, "Stamina"),
             combat == null ? null : Number(player, "Consciousness"),
             combat == null ? null : Number(player, "Muscle Power"), funds, speed, opponents.Count, combat != null,
-            combat == null ? null : Number(player, "Exhaustion"), combat == null ? null : Number(player, "Temperature"), reputation);
+            combat == null ? null : Number(player, "Exhaustion"), combat == null ? null : Number(player, "Temperature"), reputation,
+            physique, CanEditCareerPhysique());
     }
 
     public void Verify(TextWriter log, bool writeTest)
     {
         log.WriteLine(Status());
+        var physiqueProperty = CareerPhysiqueProperty();
+        log.WriteLine($"PASS career physique source: {physiqueProperty.Name} at reflected offset 0x{physiqueProperty.Offset:X}; no physique writes.");
         if (combat == null)
         {
             log.WriteLine("PASS session without fighter: funds and rank reputation resolved without a possessed pawn.");
@@ -424,6 +487,7 @@ internal sealed class Trainer : IDisposable
         }
         foreach (string name in HealthNames.Concat(ConsciousnessNames).Concat(PainNames).Concat(["Stamina", "Muscle Power", "Exhaustion", "Temperature"]))
             log.WriteLine($"{name}: {Number(player, name):F3}");
+        log.WriteLine($"Spawned physique: Muscle Rate={Number(player, "Muscle Rate"):G}; mass scale={Number(player, "Mass Scale (Set in BP)"):G}");
         var hostiles = unreal.AllObjects().Where(o => o.Address != player.Address &&
             o.Outer == player.Outer && unreal.IsA(o, "Willie_BP_C") && Hostile(o)).ToList();
         log.WriteLine($"Hostile NPCs resolved: {hostiles.Count}; player excluded; same-team allies excluded.");

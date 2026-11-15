@@ -30,17 +30,29 @@ internal sealed class TrainerForm : Form
     private readonly CheckBox exhaustion = Toggle("No Exhaustion", "Always rested and ready to fight.");
     private readonly CheckBox temperature = Toggle("Ideal Temperature", "Neither freezing nor overheated.");
     private readonly CheckBox speed = Toggle("Game Speed", "Set the world's pace.");
-    private readonly CheckBox muscle = Toggle("Muscle Power", "A less subtle argument.", "Muscle Power Value");
+    private readonly CheckBox muscle = Toggle("Motor Power", "Physics only. 35 is default.", "Muscle Power (physics motors)");
     private readonly CheckBox reputation = Toggle("Reputation on Rank", "Hold a minimum. Tourneys refresh normally.");
     private readonly NumericUpDown speedValue = Number(0.1m, 5, 1, 2, 0.1m);
     private readonly NumericUpDown muscleValue = Number(0, 10000, 35, 2, 5);
     private readonly NumericUpDown fundsValue = Number(0, 1000000000, 0, 0, 100);
     private readonly NumericUpDown reputationValue = Number(0, 1000000000, 1500, 0, 50);
+    private readonly NumericUpDown physiqueValue = Number(0, 1, 0.5m, 2, 0.05m);
     private readonly Button fundsButton = new ActionButton { Text = "SET", AccessibleName = "Set Funds", AutoSize = false, Enabled = false };
+    private readonly Button physiqueButton = new ActionButton
+    {
+        Text = "SET", AccessibleName = "Set career physique for next spawn", AutoSize = false, Enabled = false,
+        AccessibleDescription = "Apply outside a fight in career mode. Changes body build and mass on the next spawn and may persist in normal saves."
+    };
+    private readonly Label physiqueHint = new()
+    {
+        Text = "Career physique unavailable. Link to the game and leave the fight to apply.",
+        Dock = DockStyle.Top, Height = 28, ForeColor = Theme.Muted, Padding = new Padding(0, 5, 0, 0)
+    };
     private readonly Panel controls = new() { AutoSize = true, Dock = DockStyle.Fill };
     private volatile TrainerOptions options = new();
     private int pendingFunds = -1;
     private int pendingForceWin;
+    private double pendingPhysique = -1;
     private CancellationTokenSource? cancellation;
     private Task? worker;
     private bool closing;
@@ -97,6 +109,13 @@ internal sealed class TrainerForm : Form
         modifiers.Controls.Add(ValueCard(muscle, muscleValue));
         modifiers.Controls.Add(ValueCard(null, fundsValue, fundsButton));
         features.Controls.Add(modifiers);
+        features.Controls.Add(Heading("CAREER PHYSIQUE", "SET IN MENU / NEXT SPAWN"));
+        var physique = new TableLayoutPanel { Dock = DockStyle.Top, Height = 135, ColumnCount = 1, Margin = Padding.Empty };
+        physique.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        physique.Controls.Add(ValueCard(null, physiqueValue, physiqueButton, "Body build",
+            "0 lean / 0.5 default / 1 muscular. Changes mass as well as appearance."));
+        features.Controls.Add(physique);
+        features.Controls.Add(physiqueHint);
         features.Controls.Add(Heading("RISE THROUGH THE RANKS", "1,500 COVERS THIS BUILD'S REP CHECKS"));
         var progression = new TableLayoutPanel { Dock = DockStyle.Top, Height = 135, ColumnCount = 1, Margin = Padding.Empty };
         progression.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -110,7 +129,7 @@ internal sealed class TrainerForm : Form
         root.Controls.Add(body, 0, 1);
         root.Controls.Add(BuildFooter(), 0, 2);
         Controls.Add(root);
-        foreach (var button in new[] { attach, stop, fundsButton, forceWinButton })
+        foreach (var button in new[] { attach, stop, fundsButton, forceWinButton, physiqueButton })
         {
             button.FlatStyle = FlatStyle.Flat;
             button.FlatAppearance.BorderColor = Theme.Border;
@@ -128,10 +147,14 @@ internal sealed class TrainerForm : Form
         attach.FlatAppearance.MouseOverBackColor = Color.FromArgb(223, 195, 132);
         fundsButton.ForeColor = Theme.Gold;
         fundsButton.Padding = Padding.Empty;
+        physiqueButton.ForeColor = Theme.Gold;
+        physiqueButton.Padding = Padding.Empty;
         speedValue.AccessibleName = "Game Speed Value";
         muscleValue.AccessibleName = "Muscle Power Value";
+        muscleValue.AccessibleDescription = "Experimental physics-joint motor power, not body size. Default 35. Zero and extreme values may destabilize physics.";
         fundsValue.AccessibleName = "Funds Value";
         reputationValue.AccessibleName = "Reputation on Rank Value";
+        physiqueValue.AccessibleName = "Career physique value";
         AutoScaleDimensions = new SizeF(96, 96);
         AutoScaleMode = AutoScaleMode.Dpi;
         SetFeatureAvailability(false);
@@ -147,6 +170,12 @@ internal sealed class TrainerForm : Form
         {
             Interlocked.Exchange(ref pendingFunds, decimal.ToInt32(fundsValue.Value));
             SetConnection("Funds write queued...", "APPLYING", Theme.Gold);
+        };
+        physiqueButton.Click += (_, _) =>
+        {
+            Interlocked.Exchange(ref pendingPhysique, (double)physiqueValue.Value);
+            physiqueButton.Enabled = false;
+            physiqueHint.Text = "Career physique write queued. Waiting for confirmation...";
         };
         forceWinButton.Click += (_, _) =>
         {
@@ -262,7 +291,8 @@ internal sealed class TrainerForm : Form
         return header;
     }
 
-    private static Control ValueCard(CheckBox? toggle, NumericUpDown number, Button? button = null)
+    private static Control ValueCard(CheckBox? toggle, NumericUpDown number, Button? button = null,
+        string title = "Funds", string description = "Coin makes a fine argument.")
     {
         var card = new SurfacePanel { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 8, 0), Padding = new Padding(10, 4, 10, 12) };
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1, Margin = Padding.Empty };
@@ -277,8 +307,8 @@ internal sealed class TrainerForm : Form
         else
         {
             var labels = new Panel { Dock = DockStyle.Fill };
-            labels.Controls.Add(new Label { Text = "Funds", Location = new Point(5, 12), AutoSize = true, Font = new Font("Segoe UI", 10, FontStyle.Bold) });
-            labels.Controls.Add(new Label { Text = "Coin makes a fine argument.", Location = new Point(5, 38), AutoSize = true, Font = new Font("Segoe UI", 8.25f), ForeColor = Theme.Muted });
+            labels.Controls.Add(new Label { Text = title, Location = new Point(5, 12), AutoSize = true, Font = new Font("Segoe UI", 10, FontStyle.Bold) });
+            labels.Controls.Add(new Label { Text = description, Location = new Point(5, 38), AutoSize = true, Font = new Font("Segoe UI", 8.25f), ForeColor = Theme.Muted });
             layout.Controls.Add(labels, 0, 0);
         }
         var input = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = button == null ? 1 : 2, Margin = Padding.Empty };
@@ -331,7 +361,12 @@ internal sealed class TrainerForm : Form
     private void SetFeatureAvailability(bool available)
     {
         fundsButton.Enabled = available;
-        if (!available) forceWinButton.Enabled = false;
+        if (!available)
+        {
+            forceWinButton.Enabled = false;
+            physiqueButton.Enabled = false;
+            physiqueHint.Text = "Career physique unavailable. Link to the game and leave the fight to apply.";
+        }
     }
 
     private void ShowWaitingState(bool absent, string state)
@@ -350,6 +385,9 @@ internal sealed class TrainerForm : Form
     {
         SetConnection(status.Message, status.CombatReady ? "IN THE ARENA" : "OPTIONS ARMED", Theme.Green);
         forceWinButton.Enabled = status.CombatReady;
+        physiqueButton.Enabled = status.PhysiqueEditable && !status.CombatReady;
+        physiqueHint.Text = $"Career build: {Format(status.CareerPhysique)}. " +
+            (physiqueButton.Enabled ? "Set here, then spawn into a new match." : "Apply from a career menu outside a fight.");
         healthDisplay.Value = status.Health;
         staminaDisplay.Value = status.Stamina;
         consciousnessDisplay.Value = status.Consciousness;
@@ -415,6 +453,12 @@ internal sealed class TrainerForm : Form
                         trainer.Apply(options);
                         int funds = Interlocked.Exchange(ref pendingFunds, -1);
                         if (funds >= 0) trainer.SetFunds(funds);
+                        double physique = Interlocked.Exchange(ref pendingPhysique, -1);
+                        if (physique >= 0)
+                        {
+                            trainer.SetCareerPhysique(physique);
+                            nextStatus = DateTime.MinValue;
+                        }
                         if (Interlocked.Exchange(ref pendingForceWin, 0) == 1)
                         {
                             trainer.ForceWin();
@@ -443,6 +487,8 @@ internal sealed class TrainerForm : Form
                         waitingState = state;
                         Interlocked.Exchange(ref pendingFunds, -1);
                         Interlocked.Exchange(ref pendingForceWin, 0);
+                        if (Interlocked.Exchange(ref pendingPhysique, -1) >= 0)
+                            Program.Log("Queued career physique cancelled by a scene transition. Apply again from a career menu.");
                         if (trainer != null)
                         {
                             backupPath = trainer.BackupPath;
@@ -478,6 +524,8 @@ internal sealed class TrainerForm : Form
         worker = null;
         pendingFunds = -1;
         pendingForceWin = 0;
+        pendingPhysique = -1;
+        SetFeatureAvailability(false);
         if (disarm)
             foreach (var toggle in FeatureToggles) toggle.Checked = false;
         SetConnection("All features off. Link to the game when you are ready.", "DISARMED", Theme.Muted);
@@ -490,7 +538,8 @@ internal sealed class TrainerForm : Form
         using var form = new TrainerForm();
         form.SetFeatureAvailability(false);
         if (form.FeatureToggles.Any(toggle => !toggle.Enabled) || !form.speedValue.Enabled ||
-            !form.muscleValue.Enabled || !form.reputationValue.Enabled || form.fundsButton.Enabled)
+            !form.muscleValue.Enabled || !form.reputationValue.Enabled || !form.physiqueValue.Enabled ||
+            form.fundsButton.Enabled || form.physiqueButton.Enabled)
             throw new InvalidOperationException("Pre-game options or session-only funds availability are incorrect.");
         form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 35, 0, 1, 0, false, 0, 1, 0));
         if (form.forceWinButton.Enabled) throw new InvalidOperationException("Force Win is enabled without an active fighter.");
@@ -513,6 +562,40 @@ internal sealed class TrainerForm : Form
         }
         form.Size = originalSize;
         log.WriteLine("PASS Force Win label and spacing at default and minimum window sizes.");
+        form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 35, 0, 1, 0, false, 0, 1, 0, 4.035, true));
+        if (!form.physiqueButton.Enabled || form.physiqueValue.Value != 0.5m ||
+            !form.physiqueHint.Text.Contains(Format(4.035)))
+            throw new InvalidOperationException("Menu physique editing or unclamped saved-value readback is incorrect.");
+        form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 35, 0, 1, 0, false, 0, 1, 0, 0.5, false));
+        if (form.physiqueButton.Enabled) throw new InvalidOperationException("Physique editing is enabled outside a supported career menu.");
+        form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 35, 0, 1, 0, true, 0, 1, 0, 0.5, true));
+        if (form.physiqueButton.Enabled) throw new InvalidOperationException("Physique editing is enabled with an active fighter.");
+        foreach (double value in new[] { 0d, 0.5, 1d }) Trainer.ValidateCareerPhysique(value);
+        foreach (double value in new[] { -0.01, 1.01, double.NaN, double.PositiveInfinity })
+        {
+            try { Trainer.ValidateCareerPhysique(value); }
+            catch (ArgumentOutOfRangeException) { continue; }
+            throw new InvalidOperationException("An invalid career physique was accepted.");
+        }
+        log.WriteLine("PASS physique limits, saved-value readback, and menu-only action availability.");
+        var character = new GameProperty("Player Character", "StructProperty", 0x260, 0x240, 1);
+        var weight = new GameProperty("Weight_Test", "DoubleProperty", 0x20, 8, 2);
+        if (Trainer.ComposeCareerPhysiqueProperty(character, weight, 0xD00).Offset != 0x280)
+            throw new InvalidOperationException("Nested physique offset is incorrect.");
+        foreach (var (container, member) in new[]
+        {
+            (character, weight with { Offset = -1 }),
+            (character, weight with { Offset = 0x239 }),
+            (character, weight with { Type = "FloatProperty", Size = 4 }),
+            (character with { Offset = int.MaxValue - 1 }, weight),
+            (character with { Size = 0 }, weight)
+        })
+        {
+            try { Trainer.ComposeCareerPhysiqueProperty(container, member, 0xD00); }
+            catch (InvalidOperationException) { continue; }
+            throw new InvalidOperationException("An invalid nested physique layout was accepted.");
+        }
+        log.WriteLine("PASS nested physique type, struct bounds, and containing-object bounds.");
         form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 35, 0, 1, 0, true, 0, 1, 0));
         if (!form.forceWinButton.Enabled) throw new InvalidOperationException("Force Win is disabled with an active fighter.");
         form.SetFeatureAvailability(false);
@@ -522,7 +605,7 @@ internal sealed class TrainerForm : Form
             form.SetFeatureAvailability(true);
             form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 35, 0, 1, 0, true, 0, 1, 0));
             form.ShowWaitingState(absent, state);
-            if (form.forceWinButton.Enabled || form.fundsButton.Enabled || form.badge.Text != state)
+            if (form.forceWinButton.Enabled || form.fundsButton.Enabled || form.physiqueButton.Enabled || form.badge.Text != state)
                 throw new InvalidOperationException($"Session actions remain available while {state}.");
         }
         log.WriteLine("PASS session actions are disabled during scene changes and game exit.");
@@ -531,7 +614,10 @@ internal sealed class TrainerForm : Form
         form.muscleValue.Value = 82;
         form.reputationValue.Value = 2300;
         var staged = form.options;
+        form.pendingPhysique = 0.75;
         await form.StopAsync(false);
+        if (form.pendingPhysique != -1 || form.physiqueButton.Enabled)
+            throw new InvalidOperationException("Relinking retained a one-shot physique request.");
         if (form.options != staged || !form.options.NoExhaustion || !form.options.Temperature ||
             !form.options.RankReputation || form.options.ReputationValue != 2300 ||
             form.options.SpeedValue != 1.75 || form.options.MuscleValue != 82)
