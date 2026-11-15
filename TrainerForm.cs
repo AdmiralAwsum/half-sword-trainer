@@ -5,13 +5,14 @@ namespace HalfSwordTrainer;
 internal sealed class TrainerForm : Form
 {
     private readonly Button attach = new ActionButton { Text = "LINK TO GAME", AccessibleName = "Attach to running game", AutoSize = true, Primary = true };
-    private readonly Button forceWinButton = new ActionButton
+    private readonly ActionButton forceWinButton = new()
     {
         Text = "UNSTICK MATCH",
         AccessibleName = "Force Win / Unstick Match",
         AccessibleDescription = "Resets stuck death flags, finishes hostile characters, and marks the active match won. This cannot be undone.",
-        AutoSize = true,
-        Enabled = false
+        AutoSize = false,
+        Enabled = false,
+        Danger = true
     };
     private readonly Button stop = new ActionButton { Text = "DISARM ALL", AccessibleName = "STOP / Restore", AutoSize = true, Enabled = false };
     private readonly Label connection = new() { Text = "Choose your options. Waiting for the game...", AutoSize = true };
@@ -71,7 +72,7 @@ internal sealed class TrainerForm : Form
         body.Controls.Add(new PortraitPanel(), 0, 0);
         var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true, Margin = Padding.Empty };
         var arsenal = Stack();
-        arsenal.Controls.Add(Heading("VITAL SIGNS", "LIVE FROM THE ARENA"));
+        arsenal.Controls.Add(Heading("VITAL SIGNS", "LIVE FROM THE ARENA", forceWinButton));
         var vitals = new TableLayoutPanel { Dock = DockStyle.Top, Height = 88, ColumnCount = 3, Margin = new Padding(0, 0, 0, 10) };
         foreach (var display in new[] { healthDisplay, staminaDisplay, consciousnessDisplay })
         {
@@ -179,11 +180,18 @@ internal sealed class TrainerForm : Form
         Padding = Padding.Empty
     };
 
-    private static Control Heading(string title, string detail)
+    private static Control Heading(string title, string detail, Control? action = null)
     {
-        var panel = new TableLayoutPanel { Dock = DockStyle.Top, Height = 35, ColumnCount = 2, Margin = Padding.Empty };
-        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45));
-        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55));
+        var panel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            Height = action == null ? 35 : 42,
+            ColumnCount = action == null ? 2 : 3,
+            Margin = Padding.Empty,
+            AccessibleName = action == null ? null : "Combat match actions"
+        };
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, action == null ? 45 : 38));
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, action == null ? 55 : 40));
         panel.Controls.Add(new Label
         {
             Text = title,
@@ -202,6 +210,13 @@ internal sealed class TrainerForm : Form
             ForeColor = Theme.Muted,
             Margin = new Padding(0, 0, 8, 0)
         });
+        if (action != null)
+        {
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22));
+            action.Dock = DockStyle.Fill;
+            action.Margin = new Padding(8, 4, 8, 6);
+            panel.Controls.Add(action, 2, 0);
+        }
         return panel;
     }
 
@@ -242,7 +257,7 @@ internal sealed class TrainerForm : Form
         badge.Font = new Font("Segoe UI", 7.5f, FontStyle.Bold);
         badge.ForeColor = Theme.Muted;
         badge.BackColor = Theme.Surface;
-        actions.Controls.AddRange([stop, forceWinButton, attach, badge]);
+        actions.Controls.AddRange([stop, attach, badge]);
         header.Controls.Add(actions, 1, 0);
         return header;
     }
@@ -317,6 +332,15 @@ internal sealed class TrainerForm : Form
     {
         fundsButton.Enabled = available;
         if (!available) forceWinButton.Enabled = false;
+    }
+
+    private void ShowWaitingState(bool absent, string state)
+    {
+        SetConnection(absent ? "Waiting for Half Sword. Your selections will resume when you play." :
+            "Loading the next scene. Selected features resume automatically.", state, Theme.Gold);
+        values.Text = "Player unavailable  /  Game writes paused  /  Your selections are retained";
+        healthDisplay.Value = staminaDisplay.Value = consciousnessDisplay.Value = null;
+        SetFeatureAvailability(false);
     }
 
     private CheckBox[] FeatureToggles => [invulnerable, health, stamina, consciousness, pain, easyWin, speed, muscle,
@@ -414,14 +438,7 @@ internal sealed class TrainerForm : Form
                         if (waitingState != state)
                         {
                             Program.Log($"Automatic reattachment pending: {ex.Message}");
-                            Post(() =>
-                            {
-                                SetConnection(absent ? "Waiting for Half Sword. Your selections will resume when you play." :
-                                    "Loading the next scene. Selected features resume automatically.", state, Theme.Gold);
-                                values.Text = "Player unavailable  /  Game writes paused  /  Your selections are retained";
-                                healthDisplay.Value = staminaDisplay.Value = consciousnessDisplay.Value = null;
-                                fundsButton.Enabled = false;
-                            });
+                            Post(() => ShowWaitingState(absent, state));
                         }
                         waitingState = state;
                         Interlocked.Exchange(ref pendingFunds, -1);
@@ -477,10 +494,38 @@ internal sealed class TrainerForm : Form
             throw new InvalidOperationException("Pre-game options or session-only funds availability are incorrect.");
         form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 35, 0, 1, 0, false, 0, 1, 0));
         if (form.forceWinButton.Enabled) throw new InvalidOperationException("Force Win is enabled without an active fighter.");
+        if (form.forceWinButton.Parent?.AccessibleName != "Combat match actions" || !form.forceWinButton.Danger)
+            throw new InvalidOperationException("Force Win is not presented as a danger action beside live combat status.");
+        form.CreateControl();
+        var originalSize = form.Size;
+        foreach (var size in new[] { originalSize, form.MinimumSize })
+        {
+            form.Size = size;
+            form.PerformLayout();
+            var button = form.forceWinButton;
+            var row = button.Parent!;
+            var labelSize = TextRenderer.MeasureText(button.Text, button.Font, Size.Empty, TextFormatFlags.SingleLine);
+            int gap = Math.Max(1, (int)Math.Floor(4 * Theme.Scale(form)));
+            if (button.Width < labelSize.Width + 2 * gap || button.Height < labelSize.Height ||
+                button.Left < gap || button.Top < 0 ||
+                button.Right > row.ClientSize.Width - gap || button.Bottom > row.ClientSize.Height - gap)
+                throw new InvalidOperationException($"Force Win layout is clipped or crowded at {size}.");
+        }
+        form.Size = originalSize;
+        log.WriteLine("PASS Force Win label and spacing at default and minimum window sizes.");
         form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 35, 0, 1, 0, true, 0, 1, 0));
         if (!form.forceWinButton.Enabled) throw new InvalidOperationException("Force Win is disabled with an active fighter.");
         form.SetFeatureAvailability(false);
         if (form.forceWinButton.Enabled) throw new InvalidOperationException("Force Win remains enabled after losing the game session.");
+        foreach (var (absent, state) in new[] { (false, "BETWEEN BOUTS"), (true, "WAITING FOR GAME") })
+        {
+            form.SetFeatureAvailability(true);
+            form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 35, 0, 1, 0, true, 0, 1, 0));
+            form.ShowWaitingState(absent, state);
+            if (form.forceWinButton.Enabled || form.fundsButton.Enabled || form.badge.Text != state)
+                throw new InvalidOperationException($"Session actions remain available while {state}.");
+        }
+        log.WriteLine("PASS session actions are disabled during scene changes and game exit.");
         foreach (var toggle in form.FeatureToggles) toggle.Checked = true;
         form.speedValue.Value = 1.75m;
         form.muscleValue.Value = 82;

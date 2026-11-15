@@ -62,6 +62,8 @@ internal sealed class ActionButton : Button
 {
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     internal bool Primary { get; set; }
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    internal bool Danger { get; set; }
 
     public ActionButton()
     {
@@ -76,14 +78,15 @@ internal sealed class ActionButton : Button
     protected override void OnPaint(PaintEventArgs e)
     {
         bool hover = Enabled && ClientRectangle.Contains(PointToClient(MousePosition));
-        Color background = Primary && Enabled ? hover ? Color.FromArgb(224, 194, 130) : Theme.Gold
+        Color background = Danger && Enabled ? hover ? Color.FromArgb(83, 48, 42) : Color.FromArgb(61, 39, 35)
+            : Primary && Enabled ? hover ? Color.FromArgb(224, 194, 130) : Theme.Gold
             : hover ? Color.FromArgb(49, 56, 38) : Theme.Surface;
         using var fill = new SolidBrush(background);
         e.Graphics.FillRectangle(fill, ClientRectangle);
-        using var border = new Pen(Primary && Enabled ? Theme.Gold : Theme.Border);
+        using var border = new Pen(Danger && Enabled ? Theme.Red : Primary && Enabled ? Theme.Gold : Theme.Border);
         e.Graphics.DrawRectangle(border, 0, 0, Width - 1, Height - 1);
         TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle,
-            !Enabled ? Theme.Muted : Primary ? Theme.Background : ForeColor,
+            !Enabled ? Theme.Muted : Danger ? Theme.Parchment : Primary ? Theme.Background : ForeColor,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
         if (Focused && ShowFocusCues)
             ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle, -4, -4), Theme.Gold, background);

@@ -1,6 +1,6 @@
 # Half Sword Trainer - The Fool's Favour
 
-A medieval jester-themed standalone trainer for **Half Sword 0.7.2**. Trainer version **1.2.0**.
+A medieval jester-themed standalone trainer for **Half Sword 0.7.2**. Trainer version **1.2.1**.
 
 See [CHANGELOG.md](./CHANGELOG.md) for version history.
 
@@ -24,6 +24,7 @@ cards and an original broken-sword/fool's-crown shield icon. The trainer starts
 listening automatically, even before the game is launched. **DISARM ALL** stops
 listening, clears all switches, and restores reversible overrides.
 **LINK TO GAME** resumes listening without clearing your selected options.
+The combat-only **UNSTICK MATCH** action sits beside the live vital signs.
 The connection badge changes to **BETWEEN BOUTS** during loading and
 **WAITING FOR GAME** when the game is closed.
 Control cards scroll on shorter windows; standard keyboard focus and checkbox
@@ -143,7 +144,8 @@ Get-Content .\dist\verification.txt
 ```
 
 `--self-test` checks pre-game selection, linking/lost-session retention, disarm,
-and reputation input/floor behavior without accessing the game.
+reputation input/floor behavior, and the match-action layout without accessing
+the game.
 `--verify` validates live bindings, NPC targeting, and Force Win property
 bindings without writing.
 `--test-writes` briefly tests player stats, invulnerability, funds, muscle
