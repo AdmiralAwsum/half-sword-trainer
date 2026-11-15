@@ -2,19 +2,37 @@ namespace HalfSwordTrainer;
 
 internal sealed record TrainerOptions(bool Invulnerable = false, bool Health = false, bool Stamina = false,
     bool Consciousness = false, bool NoPain = false, bool EasyWin = false,
-    bool Speed = false, double SpeedValue = 1, bool Muscle = false, double MuscleValue = 35);
+    bool Speed = false, double SpeedValue = 1, bool Muscle = false, double MuscleValue = 35,
+    bool NoExhaustion = false, bool Temperature = false, bool RankReputation = false, int ReputationValue = 1500)
+{
+    public void Validate()
+    {
+        if (!double.IsFinite(SpeedValue) || SpeedValue is < 0.1 or > 5 ||
+            !double.IsFinite(MuscleValue) || MuscleValue is < 0 or > 10000 ||
+            ReputationValue is < 0 or > 1000000000)
+            throw new ArgumentOutOfRangeException(nameof(TrainerOptions), "Speed must be 0.1-5; muscle power 0-10,000; rank reputation 0-1,000,000,000.");
+    }
 
-internal sealed record TrainerStatus(string Message, double Health, double Stamina, double Consciousness,
-    double Muscle, int Funds, double Speed, int Opponents);
+    public int ReputationTarget(int current) => Math.Max(current, ReputationValue);
+}
+
+internal sealed record TrainerStatus(string Message, double? Health, double? Stamina, double? Consciousness,
+    double? Muscle, int Funds, double? Speed, int Opponents, bool CombatReady,
+    double? Exhaustion, double? Temperature, int RankReputation);
 
 internal sealed class Trainer : IDisposable
 {
     private readonly Memory memory = new(true);
     private readonly Unreal unreal;
-    private GameObject controller;
-    private GameObject player;
-    private GameObject settings;
+    private sealed record CombatBindings(GameObject Controller, GameObject Player);
+    private CombatBindings? combat;
+    private GameObject? localController;
+    private GameObject? world;
+    private GameObject controller => combat?.Controller ?? throw new GameTransitionException("No active fighter.");
+    private GameObject player => combat?.Player ?? throw new GameTransitionException("No active fighter.");
+    private GameObject settings => world ?? throw new GameTransitionException("Waiting for the active world.");
     private GameObject instance;
+    private DateTime nextCombatScan;
     private List<GameObject> opponents = [];
     private readonly Dictionary<(long Address, string Name), (GameObject Object, GameProperty Property, byte[] Original, byte[] Applied)> overrides = [];
     private DateTime nextOpponentScan;
@@ -22,40 +40,70 @@ internal sealed class Trainer : IDisposable
     private readonly Action<string> notify;
     public string? BackupPath { get; private set; }
     public int ProcessId => memory.Process.Id;
+    public GameProcessIdentity ProcessIdentity => memory.Identity;
     private static readonly string[] HealthNames = ["Health", "Head Health", "Body Upper Health", "Body Lower Health",
         "Arm_R Health", "Arm_L Health", "Leg_R Health", "Leg_L Health", "Neck Health", "Back Health",
         "Heart Health", "Head Health (Crush)"];
     private static readonly string[] ConsciousnessNames = ["Consciousness", "Consciousness Cap", "Consciousness 2 (Legs)"];
     private static readonly string[] PainNames = ["Ball Pain", "Liver Pain"];
 
-    public Trainer(Action<string>? notify = null, string? backupPath = null)
+    public Trainer(Action<string>? notify = null, string? backupPath = null,
+        GameProcessIdentity? previouslyValidatedProcess = null)
     {
         this.notify = notify ?? Program.Log;
         BackupPath = backupPath;
         backedUp = backupPath != null;
         try
         {
-            unreal = new Unreal(memory);
+            unreal = new Unreal(memory, memory.Identity == previouslyValidatedProcess);
             var all = unreal.AllObjects();
-            var controllers = all.Where(o => unreal.IsA(o, "PlayerController") &&
-                unreal.ObjectName(o.Outer) == "PersistentLevel" &&
-                IsLocalController(o)).ToList();
-            if (controllers.Count != 1) throw new GameTransitionException("Waiting for a unique local player controller.");
-            controller = controllers[0];
-            long pawn = Pointer(controller, "AcknowledgedPawn");
-            if (pawn == 0) throw new GameTransitionException("Waiting for the local player to possess a character.");
-            player = unreal.Reference(pawn);
-            if (!unreal.IsA(player, "Willie_BP_C"))
-                throw new GameTransitionException("Waiting for a playable Half Sword character.");
-            var worlds = all.Where(o => unreal.IsA(o, "WorldSettings") && o.Outer == controller.Outer).ToList();
-            var instances = all.Where(o => unreal.IsA(o, "GI_Settings_C")).ToList();
-            if (worlds.Count != 1 || instances.Count != 1)
-                throw new GameTransitionException("Waiting for the active world and game instance.");
-            settings = worlds[0];
+            var instances = all.Where(o => unreal.IsA(o, "GI_Settings_C") && unreal.ObjectName(o.Outer) == "GameEngine").ToList();
+            if (instances.Count != 1) throw new GameTransitionException("Waiting for the game session.");
             instance = instances[0];
-            ValidateBindings();
+            _ = unreal.Property(instance, "Player Funds", "IntProperty");
+            _ = unreal.Property(instance, "Reputation on Rank", "IntProperty");
+            BindCombat(all);
         }
         catch { memory.Dispose(); throw; }
+    }
+
+    private void BindCombat(List<GameObject>? all = null)
+    {
+        nextCombatScan = DateTime.UtcNow.AddMilliseconds(350);
+        var localPlayers = unreal.Property(instance, "LocalPlayers", "ArrayProperty");
+        var array = memory.Read(instance.Address + localPlayers.Offset, 16);
+        int count = BitConverter.ToInt32(array, 8);
+        if (count == 0) return;
+        if (count != 1) throw new InvalidOperationException("Only a single local player is supported.");
+        var local = unreal.Reference(memory.Read<long>(BitConverter.ToInt64(array)));
+        if (!unreal.IsA(local, "LocalPlayer")) throw new GameTransitionException("Local player is loading.");
+        long controllerAddress = Pointer(local, "PlayerController");
+        if (controllerAddress == 0) return;
+        var candidate = unreal.Reference(controllerAddress);
+        if (!IsLocalController(candidate)) throw new GameTransitionException("Local controller is changing.");
+        localController = candidate;
+        if (world == null)
+        {
+            var worlds = (all ?? unreal.AllObjects()).Where(o => unreal.IsA(o, "WorldSettings") && o.Outer == candidate.Outer).ToList();
+            if (worlds.Count == 1) world = worlds[0];
+        }
+        long pawn = Pointer(candidate, "AcknowledgedPawn");
+        if (pawn == 0 || Pointer(candidate, "Pawn") != pawn) return;
+        var fighter = unreal.Reference(pawn);
+        if (!unreal.IsA(fighter, "Willie_BP_C")) return;
+        combat = new(candidate, fighter);
+        ValidateBindings();
+    }
+
+    private void EnsureSession()
+    {
+        if (memory.Process.HasExited) throw new GameUnavailableException();
+        unreal.EnsureLive(instance);
+        if (localController != null)
+        {
+            unreal.EnsureLive(localController);
+            if (!IsLocalController(localController)) throw new GameTransitionException("The active local controller changed.");
+        }
     }
 
     private long Pointer(GameObject obj, string name) =>
@@ -73,14 +121,14 @@ internal sealed class Trainer : IDisposable
     {
         unreal.EnsureLive(controller);
         unreal.EnsureLive(player);
-        unreal.EnsureLive(settings);
+        if (world != null) unreal.EnsureLive(world);
         unreal.EnsureLive(instance);
-        foreach (string name in HealthNames.Concat(ConsciousnessNames).Concat(PainNames).Concat(["Stamina", "Muscle Power", "Bleeding"]))
+        foreach (string name in HealthNames.Concat(ConsciousnessNames).Concat(PainNames).Concat(["Stamina", "Muscle Power", "Bleeding", "Exhaustion", "Temperature"]))
             _ = DoubleProperty(player, name);
         _ = unreal.Property(player, "Invulnerable", "BoolProperty");
         _ = unreal.Property(player, "Team Int", "IntProperty");
         _ = unreal.Property(player, "Player", "BoolProperty");
-        _ = unreal.Property(settings, "TimeDilation", "FloatProperty");
+        if (world != null) _ = unreal.Property(world, "TimeDilation", "FloatProperty");
         _ = unreal.Property(instance, "Player Funds", "IntProperty");
         _ = Status();
     }
@@ -101,7 +149,7 @@ internal sealed class Trainer : IDisposable
 
     private void EnsurePlayer()
     {
-        if (memory.Process.HasExited) throw new InvalidOperationException("Half Sword has exited.");
+        EnsureSession();
         unreal.EnsureLive(controller);
         unreal.EnsureLive(player);
         if (!IsLocalController(controller) ||
@@ -130,7 +178,8 @@ internal sealed class Trainer : IDisposable
     private void Put(GameObject obj, GameProperty prop, byte[] bytes, bool reversible = false)
     {
         if (bytes.Length != prop.Size) throw new InvalidOperationException($"Size mismatch for {prop.Name}.");
-        EnsurePlayer();
+        EnsureSession();
+        if (obj.Address != instance.Address && obj.Address != world?.Address) EnsurePlayer();
         unreal.EnsureLive(obj);
         Backup();
         long address = obj.Address + prop.Offset;
@@ -170,7 +219,7 @@ internal sealed class Trainer : IDisposable
                 if (memory.Read(address, value.Applied.Length).AsSpan().SequenceEqual(value.Applied))
                     memory.Write(address, value.Original);
             }
-            catch (GameTransitionException ex)
+            catch (Exception ex) when (ex is GameTransitionException or GameUnavailableException)
             {
                 notify($"Skipped restoring {name} on unloaded object 0x{value.Object.Address:X}: {ex.Message}");
             }
@@ -180,10 +229,22 @@ internal sealed class Trainer : IDisposable
 
     public void Apply(TrainerOptions options)
     {
-        if (!double.IsFinite(options.SpeedValue) || options.SpeedValue is < 0.1 or > 5 ||
-            !double.IsFinite(options.MuscleValue) || options.MuscleValue is < 0 or > 10000)
-            throw new ArgumentOutOfRangeException(nameof(options), "Speed must be 0.1–5; muscle power 0–10,000.");
-        EnsurePlayer();
+        options.Validate();
+        EnsureSession();
+        if (combat == null && DateTime.UtcNow >= nextCombatScan) BindCombat();
+        if (combat != null) EnsurePlayer();
+        if (options.RankReputation)
+        {
+            var property = unreal.Property(instance, "Reputation on Rank", "IntProperty");
+            int current = memory.Read<int>(instance.Address + property.Offset);
+            int target = options.ReputationTarget(current);
+            if (current != target) Put(instance, property, BitConverter.GetBytes(target));
+        }
+        if (options.Speed && world != null)
+            Put(world, unreal.Property(world, "TimeDilation", "FloatProperty"),
+                BitConverter.GetBytes((float)options.SpeedValue), true);
+        else if (!options.Speed) Restore("TimeDilation");
+        if (combat == null) return;
         if (options.Invulnerable) SetInvulnerable(true); else Restore("Invulnerable");
         if (options.Health)
         {
@@ -191,15 +252,13 @@ internal sealed class Trainer : IDisposable
             Set(player, "Bleeding", 0);
         }
         if (options.Stamina) Set(player, "Stamina", 100);
+        if (options.NoExhaustion) Set(player, "Exhaustion", 0);
+        if (options.Temperature) Set(player, "Temperature", 1);
         if (options.Consciousness)
             foreach (string name in ConsciousnessNames) Set(player, name, 100);
         if (options.NoPain)
             foreach (string name in PainNames) Set(player, name, 0);
         if (options.Muscle) Set(player, "Muscle Power", options.MuscleValue, true); else Restore("Muscle Power");
-        if (options.Speed)
-            Put(settings, unreal.Property(settings, "TimeDilation", "FloatProperty"),
-                BitConverter.GetBytes((float)options.SpeedValue), true);
-        else Restore("TimeDilation");
         if (options.EasyWin)
         {
             if (DateTime.UtcNow >= nextOpponentScan)
@@ -239,22 +298,33 @@ internal sealed class Trainer : IDisposable
 
     public TrainerStatus Status()
     {
-        EnsurePlayer();
-        unreal.EnsureLive(instance);
-        unreal.EnsureLive(settings);
+        EnsureSession();
+        if (combat != null) EnsurePlayer();
+        if (world != null) unreal.EnsureLive(world);
         int funds = memory.Read<int>(instance.Address + unreal.Property(instance, "Player Funds", "IntProperty").Offset);
-        float speed = memory.Read<float>(settings.Address + unreal.Property(settings, "TimeDilation", "FloatProperty").Offset);
-        if (funds < 0 || !float.IsFinite(speed) || speed <= 0)
+        float? speed = world == null ? null : memory.Read<float>(world.Address + unreal.Property(world, "TimeDilation", "FloatProperty").Offset);
+        int reputation = memory.Read<int>(instance.Address + unreal.Property(instance, "Reputation on Rank", "IntProperty").Offset);
+        if (funds < 0 || (speed.HasValue && (!float.IsFinite(speed.Value) || speed <= 0)))
             throw new InvalidOperationException("Live funds or game speed validation failed.");
-        return new($"Attached to PID {ProcessId} | player 0x{player.Address:X}", Number(player, "Health"),
-            Number(player, "Stamina"), Number(player, "Consciousness"), Number(player, "Muscle Power"),
-            funds, speed, opponents.Count);
+        return new(combat == null ? $"Attached to PID {ProcessId} | session ready; waiting for a fighter" :
+            $"Attached to PID {ProcessId} | player 0x{player.Address:X}",
+            combat == null ? null : Number(player, "Health"),
+            combat == null ? null : Number(player, "Stamina"),
+            combat == null ? null : Number(player, "Consciousness"),
+            combat == null ? null : Number(player, "Muscle Power"), funds, speed, opponents.Count, combat != null,
+            combat == null ? null : Number(player, "Exhaustion"), combat == null ? null : Number(player, "Temperature"), reputation);
     }
 
     public void Verify(TextWriter log, bool writeTest)
     {
         log.WriteLine(Status());
-        foreach (string name in HealthNames.Concat(ConsciousnessNames).Concat(PainNames).Concat(["Stamina", "Muscle Power"]))
+        if (combat == null)
+        {
+            log.WriteLine("PASS session without fighter: funds and rank reputation resolved without a possessed pawn.");
+            if (writeTest) VerifySessionWrites(log);
+            return;
+        }
+        foreach (string name in HealthNames.Concat(ConsciousnessNames).Concat(PainNames).Concat(["Stamina", "Muscle Power", "Exhaustion", "Temperature"]))
             log.WriteLine($"{name}: {Number(player, name):F3}");
         var hostiles = unreal.AllObjects().Where(o => o.Address != player.Address &&
             o.Outer == player.Outer && unreal.IsA(o, "Willie_BP_C") && Hostile(o)).ToList();
@@ -273,6 +343,8 @@ internal sealed class Trainer : IDisposable
         {
             Check(player, unreal.Property(player, "Invulnerable", "BoolProperty"), [1]);
             Check(player, DoubleProperty(player, "Bleeding"), BitConverter.GetBytes(0d));
+            Check(player, DoubleProperty(player, "Exhaustion"), BitConverter.GetBytes(0d));
+            Check(player, DoubleProperty(player, "Temperature"), BitConverter.GetBytes(1d));
             foreach (string name in HealthNames.Concat(ConsciousnessNames).Concat(["Stamina"]))
                 Check(player, DoubleProperty(player, name), BitConverter.GetBytes(100d));
             foreach (string name in PainNames) Check(player, DoubleProperty(player, name), BitConverter.GetBytes(0d));
@@ -281,13 +353,15 @@ internal sealed class Trainer : IDisposable
             int funds = Status().Funds;
             Check(instance, unreal.Property(instance, "Player Funds", "IntProperty"), BitConverter.GetBytes(funds == 1000000000 ? funds - 1 : funds + 1));
             var options = new TrainerOptions(Invulnerable: true, Health: true, Stamina: true, Consciousness: true,
-                NoPain: true, Speed: true, SpeedValue: 1.1, Muscle: true, MuscleValue: 36);
+                NoPain: true, Speed: true, SpeedValue: 1.1, Muscle: true, MuscleValue: 36, NoExhaustion: true, Temperature: true);
             for (int i = 0; i < 20; i++)
             {
                 Apply(options);
                 var status = Status();
                 if (status.Health < 99 || status.Stamina < 99 || status.Consciousness < 99 ||
-                    status.Muscle != 36 || Math.Abs(status.Speed - 1.1) > 0.0001 ||
+                    status.Muscle != 36 || status.Speed == null || Math.Abs(status.Speed.Value - 1.1) > 0.0001 ||
+                    status.Exhaustion is null or > 0.01 || status.Temperature is null ||
+                    Math.Abs(status.Temperature.Value - 1) > 0.05 ||
                     PainNames.Any(name => Number(player, name) != 0) ||
                     HealthNames.Any(name => Number(player, name) < 99))
                     throw new InvalidOperationException("Continuous trainer application did not maintain requested thresholds.");
@@ -326,8 +400,36 @@ internal sealed class Trainer : IDisposable
         log.WriteLine($"Save backup: {BackupPath}");
     }
 
+    private void VerifySessionWrites(TextWriter log)
+    {
+        foreach (string name in new[] { "Player Funds", "Reputation on Rank" })
+        {
+            var property = unreal.Property(instance, name, "IntProperty");
+            byte[] original = memory.Read(instance.Address + property.Offset, property.Size);
+            int current = BitConverter.ToInt32(original);
+            int test = current == 1000000000 ? current - 1 : current + 1;
+            try
+            {
+                if (name == "Player Funds") SetFunds(test);
+                else Apply(new TrainerOptions(RankReputation: true, ReputationValue: test));
+                if (memory.Read<int>(instance.Address + property.Offset) != test)
+                    throw new InvalidOperationException($"Menu write failed: {name}");
+                log.WriteLine($"PASS outside-fight write/readback: {name}.");
+            }
+            finally { Put(instance, property, original); }
+            if (!memory.Read(instance.Address + property.Offset, original.Length).AsSpan().SequenceEqual(original))
+                throw new InvalidOperationException($"Menu restoration failed: {name}");
+        }
+    }
+
     public void Stop()
     {
+        if (memory.Process.HasExited)
+        {
+            if (overrides.Count > 0) notify("Game exited normally; discarded overrides for the terminated process without writing.");
+            overrides.Clear();
+            return;
+        }
         List<Exception> errors = [];
         foreach (string name in overrides.Keys.Select(k => k.Name).Distinct().ToArray())
         {

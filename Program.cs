@@ -8,6 +8,21 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "--self-test")
+        {
+            ApplicationConfiguration.Initialize();
+            using var log = new StreamWriter(Path.Combine(AppContext.BaseDirectory, "verification.txt"));
+            try { TrainerForm.VerifyStaging(log).GetAwaiter().GetResult(); }
+            catch (Exception ex) { log.WriteLine(ex); Environment.ExitCode = 1; }
+            return;
+        }
+        if (args.Length > 0 && args[0] == "--inspect")
+        {
+            using var log = new StreamWriter(Path.Combine(AppContext.BaseDirectory, "inspection.txt"));
+            try { Diagnostics.Inspect(log); }
+            catch (Exception ex) { log.WriteLine(ex); Environment.ExitCode = 1; }
+            return;
+        }
         if (args.Length > 0 && args[0] is "--verify" or "--test-writes" or "--test-combat")
         {
             using var log = new StreamWriter(Path.Combine(AppContext.BaseDirectory, "verification.txt")) { AutoFlush = true };
@@ -21,6 +36,6 @@ internal static class Program
             return;
         }
         ApplicationConfiguration.Initialize();
-        Application.Run(new TrainerForm(args.Contains("--attach")));
+        Application.Run(new TrainerForm());
     }
 }

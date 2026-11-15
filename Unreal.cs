@@ -14,7 +14,7 @@ internal sealed class Unreal
     private readonly Dictionary<long, Dictionary<string, GameProperty>> properties = [];
     private readonly Dictionary<long, HashSet<string>> ancestors = [];
 
-    public Unreal(Memory memory)
+    public Unreal(Memory memory, bool recoveringKnownProcess = false)
     {
         Memory = memory;
         var section = memory.Sections().Single(s => s.Name == ".data");
@@ -40,7 +40,13 @@ internal sealed class Unreal
             if (Names != 0 && Objects != 0) break;
         }
         if (Names == 0 || Objects == 0)
+        {
+            if (memory.Process.HasExited) throw new GameUnavailableException();
+            if (memory.Process.MainWindowHandle == 0) throw new GameUnavailableException();
+            if (recoveringKnownProcess || DateTime.Now - memory.Process.StartTime < TimeSpan.FromSeconds(30))
+                throw new GameTransitionException("Waiting for Unreal runtime data during startup, loading, or shutdown.");
             throw new InvalidOperationException("Unsupported game layout: Unreal name pool/object array could not be validated.");
+        }
         if (Name(0) != "None") throw new InvalidOperationException("Unreal name pool validation failed.");
     }
 
@@ -62,7 +68,7 @@ internal sealed class Unreal
 
     public string ObjectName(long address) => address == 0 ? "(null)" : Name(Memory.Read<int>(address + 0x18));
 
-    public List<GameObject> AllObjects()
+    public List<GameObject> AllObjects(bool includeTemplates = false)
     {
         int count = Memory.Read<int>(Objects + 20);
         if (count is < 1 or > 5000000) throw new InvalidOperationException("Invalid Unreal object count.");
@@ -78,7 +84,7 @@ internal sealed class Unreal
                 if (address == 0) continue;
                 if (!Memory.TryRead(address, 40, out var obj)) continue; // Objects may be collected during enumeration.
                 if (BitConverter.ToInt32(obj, 12) != start + j / 24) continue;
-                if ((BitConverter.ToUInt32(obj, 8) & 0x18030) != 0) continue;
+                if ((BitConverter.ToUInt32(obj, 8) & (includeTemplates ? 0x18000 : 0x18030)) != 0) continue;
                 results.Add(new(address, start + j / 24, Name(BitConverter.ToInt32(obj, 24)),
                     BitConverter.ToInt64(obj, 16), BitConverter.ToInt64(obj, 32), BitConverter.ToInt32(entries, j + 16)));
             }

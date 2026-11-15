@@ -7,8 +7,12 @@
     <Nullable>enable</Nullable>
     <PlatformTarget>x64</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Version>1.1.0</Version>
+    <Product>Half Sword - The Fool's Favour</Product>
+    <ApplicationIcon>Assets\FoolsFavour.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="Assets\Jester.png" />
+    <EmbeddedResource Include="Assets\FoolsFavour.ico" />
   </ItemGroup>
 </Project>

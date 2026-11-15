@@ -6,7 +6,7 @@ internal sealed class TrainerForm : Form
 {
     private readonly Button attach = new ActionButton { Text = "LINK TO GAME", AccessibleName = "Attach to running game", AutoSize = true, Primary = true };
     private readonly Button stop = new ActionButton { Text = "DISARM ALL", AccessibleName = "STOP / Restore", AutoSize = true, Enabled = false };
-    private readonly Label connection = new() { Text = "Not attached. Start a playable scene, then attach.", AutoSize = true };
+    private readonly Label connection = new() { Text = "Choose your options. Waiting for the game...", AutoSize = true };
     private readonly Label values = new() { Text = "Local session  /  Game build 0.7.2", AutoSize = true };
     private readonly Label badge = new() { Text = "DISCONNECTED", AutoSize = false, TextAlign = ContentAlignment.MiddleCenter };
     private readonly VitalDisplay healthDisplay = new() { Text = "Health", Accent = Theme.Red };
@@ -18,11 +18,15 @@ internal sealed class TrainerForm : Form
     private readonly CheckBox consciousness = Toggle("Unlimited Consciousness", "Keep your wits. And your feet.");
     private readonly CheckBox pain = Toggle("No Ball Or Liver Pain", "Some lessons need not be learned.");
     private readonly CheckBox easyWin = Toggle("Easy Win", "Weaken foes. Deliver the final insult.", "Easy Win (weaken hostile NPCs)");
+    private readonly CheckBox exhaustion = Toggle("No Exhaustion", "Always rested and ready to fight.");
+    private readonly CheckBox temperature = Toggle("Ideal Temperature", "Neither freezing nor overheated.");
     private readonly CheckBox speed = Toggle("Game Speed", "Set the world's pace.");
     private readonly CheckBox muscle = Toggle("Muscle Power", "A less subtle argument.", "Muscle Power Value");
+    private readonly CheckBox reputation = Toggle("Reputation on Rank", "Hold a minimum. Tourneys refresh normally.");
     private readonly NumericUpDown speedValue = Number(0.1m, 5, 1, 2, 0.1m);
     private readonly NumericUpDown muscleValue = Number(0, 10000, 35, 2, 5);
     private readonly NumericUpDown fundsValue = Number(0, 1000000000, 0, 0, 100);
+    private readonly NumericUpDown reputationValue = Number(0, 1000000000, 1500, 0, 50);
     private readonly Button fundsButton = new ActionButton { Text = "SET", AccessibleName = "Set Funds", AutoSize = false, Enabled = false };
     private readonly Panel controls = new() { AutoSize = true, Dock = DockStyle.Fill };
     private volatile TrainerOptions options = new();
@@ -30,13 +34,14 @@ internal sealed class TrainerForm : Form
     private CancellationTokenSource? cancellation;
     private Task? worker;
     private bool closing;
-    private readonly bool autoAttach;
 
-    public TrainerForm(bool autoAttach)
+    public TrainerForm()
     {
         SuspendLayout();
-        this.autoAttach = autoAttach;
         Text = "Half Sword | The Fool's Favour";
+        using (var stream = typeof(TrainerForm).Assembly.GetManifestResourceStream("HalfSwordTrainer.Assets.FoolsFavour.ico")
+            ?? throw new InvalidOperationException("Application icon resource is missing."))
+        using (var icon = new Icon(stream)) Icon = (Icon)icon.Clone();
         Font = new Font("Segoe UI", 9);
         ClientSize = new Size(1160, 850);
         MinimumSize = new Size(1040, 780);
@@ -67,11 +72,11 @@ internal sealed class TrainerForm : Form
         arsenal.Controls.Add(vitals);
         var features = Stack();
         features.Controls.Add(Heading("SURVIVAL", "THE BODY IS BUT A SUGGESTION"));
-        var toggles = new TableLayoutPanel { Dock = DockStyle.Top, Height = 222, ColumnCount = 2, RowCount = 3, Margin = Padding.Empty };
+        var toggles = new TableLayoutPanel { Dock = DockStyle.Top, Height = 296, ColumnCount = 2, RowCount = 4, Margin = Padding.Empty };
         toggles.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         toggles.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        for (int i = 0; i < 3; i++) toggles.RowStyles.Add(new RowStyle(SizeType.Percent, 100f / 3));
-        foreach (var toggle in new[] { invulnerable, health, stamina, consciousness, pain, easyWin })
+        for (int i = 0; i < 4; i++) toggles.RowStyles.Add(new RowStyle(SizeType.Percent, 25));
+        foreach (var toggle in new[] { invulnerable, health, stamina, consciousness, pain, easyWin, exhaustion, temperature })
             toggles.Controls.Add(toggle);
         features.Controls.Add(toggles);
         features.Controls.Add(Heading("TIP THE SCALES", "A LITTLE OUTSIDE ASSISTANCE"));
@@ -82,6 +87,11 @@ internal sealed class TrainerForm : Form
         modifiers.Controls.Add(ValueCard(muscle, muscleValue));
         modifiers.Controls.Add(ValueCard(null, fundsValue, fundsButton));
         features.Controls.Add(modifiers);
+        features.Controls.Add(Heading("RISE THROUGH THE RANKS", "1,500 COVERS THIS BUILD'S REP CHECKS"));
+        var progression = new TableLayoutPanel { Dock = DockStyle.Top, Height = 135, ColumnCount = 1, Margin = Padding.Empty };
+        progression.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        progression.Controls.Add(ValueCard(reputation, reputationValue));
+        features.Controls.Add(progression);
         controls.Controls.Add(features);
         controls.Dock = DockStyle.Top;
         arsenal.Controls.Add(controls);
@@ -111,14 +121,16 @@ internal sealed class TrainerForm : Form
         speedValue.AccessibleName = "Game Speed Value";
         muscleValue.AccessibleName = "Muscle Power Value";
         fundsValue.AccessibleName = "Funds Value";
+        reputationValue.AccessibleName = "Reputation on Rank Value";
         AutoScaleDimensions = new SizeF(96, 96);
         AutoScaleMode = AutoScaleMode.Dpi;
         SetFeatureAvailability(false);
         ResumeLayout(true);
-        foreach (var toggle in new[] { invulnerable, health, stamina, consciousness, pain, easyWin, speed, muscle })
+        foreach (var toggle in FeatureToggles)
             toggle.CheckedChanged += (_, _) => UpdateOptions();
         speedValue.ValueChanged += (_, _) => UpdateOptions();
         muscleValue.ValueChanged += (_, _) => UpdateOptions();
+        reputationValue.ValueChanged += (_, _) => UpdateOptions();
         attach.Click += async (_, _) => await AttachAsync();
         stop.Click += async (_, _) => await StopAsync();
         fundsButton.Click += (_, _) =>
@@ -133,7 +145,7 @@ internal sealed class TrainerForm : Form
             MinimumSize = new Size(Math.Min(MinimumSize.Width, area.Width), Math.Min(MinimumSize.Height, area.Height));
             if (Height > area.Height) { Height = area.Height; Top = area.Top; }
             if (Width > area.Width) { Width = area.Width; Left = area.Left; }
-            if (this.autoAttach) await AttachAsync();
+            await AttachAsync();
         };
     }
 
@@ -288,20 +300,21 @@ internal sealed class TrainerForm : Form
 
     private void SetFeatureAvailability(bool available)
     {
-        foreach (var toggle in new[] { invulnerable, health, stamina, consciousness, pain, easyWin, speed, muscle })
-            toggle.Enabled = available;
-        speedValue.Enabled = muscleValue.Enabled = fundsValue.Enabled = available;
         fundsButton.Enabled = available;
     }
 
+    private CheckBox[] FeatureToggles => [invulnerable, health, stamina, consciousness, pain, easyWin, speed, muscle,
+        exhaustion, temperature, reputation];
+
     private void ShowStatus(TrainerStatus status)
     {
-        SetConnection(status.Message + "  /  Match recovery active", "CONNECTED", Theme.Green);
+        SetConnection(status.Message, status.CombatReady ? "IN THE ARENA" : "OPTIONS ARMED", Theme.Green);
         healthDisplay.Value = status.Health;
         staminaDisplay.Value = status.Stamina;
         consciousnessDisplay.Value = status.Consciousness;
-        values.Text = $"Funds  {status.Funds:N0}     /     Muscle  {status.Muscle:F2}     /     World speed  {status.Speed:F2}x     /     Hostile targets  {status.Opponents}";
+        values.Text = $"Funds {status.Funds:N0}  /  Rank rep {status.RankReputation:N0}  /  Exhaustion {Format(status.Exhaustion)}  /  Temp {Format(status.Temperature)}  /  Speed {Format(status.Speed)}x";
     }
+    private static string Format(double? value) => value?.ToString("F2") ?? "--";
     private static NumericUpDown Number(decimal min, decimal max, decimal value, int decimals, decimal step) => new()
     {
         Minimum = min,
@@ -316,11 +329,12 @@ internal sealed class TrainerForm : Form
 
     private void UpdateOptions() => options = new(invulnerable.Checked, health.Checked, stamina.Checked,
         consciousness.Checked, pain.Checked, easyWin.Checked, speed.Checked, (double)speedValue.Value,
-        muscle.Checked, (double)muscleValue.Value);
+        muscle.Checked, (double)muscleValue.Value, exhaustion.Checked, temperature.Checked,
+        reputation.Checked, decimal.ToInt32(reputationValue.Value));
 
     private async Task AttachAsync()
     {
-        await StopAsync();
+        await StopAsync(false);
         attach.Enabled = false;
         SetConnection("Resolving and validating runtime properties...", "LINKING", Theme.Gold);
         cancellation = new CancellationTokenSource();
@@ -330,8 +344,8 @@ internal sealed class TrainerForm : Form
         {
             Trainer? trainer = null;
             string? backupPath = null;
-            bool initialized = false;
-            bool waiting = false;
+            string? waitingState = null;
+            GameProcessIdentity? previousProcess = null;
             try
             {
                 DateTime nextStatus = DateTime.MinValue;
@@ -341,22 +355,19 @@ internal sealed class TrainerForm : Form
                     {
                         if (trainer == null)
                         {
-                            trainer = new Trainer(Program.Log, backupPath);
-                            var initial = trainer.Status();
-                            bool firstAttachment = !initialized;
-                            Post(() =>
+                            trainer = new Trainer(Program.Log, backupPath, previousProcess);
+                            if (previousProcess.HasValue && previousProcess != trainer.ProcessIdentity)
                             {
-                                SetFeatureAvailability(true);
-                                if (firstAttachment)
-                                {
-                                    fundsValue.Value = Math.Clamp(initial.Funds, 0, 1000000000);
-                                    muscleValue.Value = (decimal)Math.Clamp(initial.Muscle, 0, 10000);
-                                    speedValue.Value = (decimal)Math.Clamp(initial.Speed, 0.1, 5);
-                                }
-                            });
-                            initialized = true;
-                            if (waiting) Program.Log($"Automatically reattached: {initial.Message}");
-                            waiting = false;
+                                trainer.Dispose();
+                                trainer = null;
+                                backupPath = null;
+                                trainer = new Trainer(Program.Log);
+                            }
+                            var initial = trainer.Status();
+                            previousProcess = trainer.ProcessIdentity;
+                            Post(() => SetFeatureAvailability(true));
+                            if (waitingState != null) Program.Log($"Automatically reattached: {initial.Message}");
+                            waitingState = null;
                             nextStatus = DateTime.MinValue;
                         }
                         token.ThrowIfCancellationRequested();
@@ -374,20 +385,23 @@ internal sealed class TrainerForm : Form
                         }
                         await Task.Delay(15, token);
                     }
-                    catch (GameTransitionException ex)
+                    catch (Exception ex) when (ex is GameTransitionException or GameUnavailableException)
                     {
-                        if (!waiting)
+                        bool absent = ex is GameUnavailableException;
+                        string state = absent ? "WAITING FOR GAME" : "BETWEEN BOUTS";
+                        if (waitingState != state)
                         {
-                            Program.Log($"Loading; automatic reattachment pending: {ex.Message}");
+                            Program.Log($"Automatic reattachment pending: {ex.Message}");
                             Post(() =>
                             {
-                                SetConnection("Waiting for the next match. Selected features resume automatically.", "BETWEEN BOUTS", Theme.Gold);
+                                SetConnection(absent ? "Waiting for Half Sword. Your selections will resume when you play." :
+                                    "Loading the next scene. Selected features resume automatically.", state, Theme.Gold);
                                 values.Text = "Player unavailable  /  Game writes paused  /  Your selections are retained";
                                 healthDisplay.Value = staminaDisplay.Value = consciousnessDisplay.Value = null;
                                 fundsButton.Enabled = false;
                             });
                         }
-                        waiting = true;
+                        waitingState = state;
                         Interlocked.Exchange(ref pendingFunds, -1);
                         if (trainer != null)
                         {
@@ -395,6 +409,7 @@ internal sealed class TrainerForm : Form
                             try { trainer.Stop(); }
                             finally { trainer.Dispose(); trainer = null; }
                         }
+                        if (absent) backupPath = null;
                         await Task.Delay(500, token);
                     }
                 }
@@ -414,7 +429,7 @@ internal sealed class TrainerForm : Form
         });
     }
 
-    private async Task StopAsync()
+    private async Task StopAsync(bool disarm = true)
     {
         cancellation?.Cancel();
         if (worker != null) await worker;
@@ -422,11 +437,50 @@ internal sealed class TrainerForm : Form
         cancellation = null;
         worker = null;
         pendingFunds = -1;
-        foreach (var toggle in new[] { invulnerable, health, stamina, consciousness, pain, easyWin, speed, muscle })
-            toggle.Checked = false;
+        if (disarm)
+            foreach (var toggle in FeatureToggles) toggle.Checked = false;
         SetConnection("All features off. Link to the game when you are ready.", "DISARMED", Theme.Muted);
         healthDisplay.Value = staminaDisplay.Value = consciousnessDisplay.Value = null;
         values.Text = "Local session  /  Game build 0.7.2  /  Saves backed up before the first write";
+    }
+
+    internal static async Task VerifyStaging(TextWriter log)
+    {
+        using var form = new TrainerForm();
+        form.SetFeatureAvailability(false);
+        if (form.FeatureToggles.Any(toggle => !toggle.Enabled) || !form.speedValue.Enabled ||
+            !form.muscleValue.Enabled || !form.reputationValue.Enabled || form.fundsButton.Enabled)
+            throw new InvalidOperationException("Pre-game options or session-only funds availability are incorrect.");
+        foreach (var toggle in form.FeatureToggles) toggle.Checked = true;
+        form.speedValue.Value = 1.75m;
+        form.muscleValue.Value = 82;
+        form.reputationValue.Value = 2300;
+        var staged = form.options;
+        await form.StopAsync(false);
+        if (form.options != staged || !form.options.NoExhaustion || !form.options.Temperature ||
+            !form.options.RankReputation || form.options.ReputationValue != 2300 ||
+            form.options.SpeedValue != 1.75 || form.options.MuscleValue != 82)
+            throw new InvalidOperationException("Linking discarded preselected options or modifier values.");
+        form.SetFeatureAvailability(true);
+        form.SetFeatureAvailability(false);
+        if (form.options != staged || form.FeatureToggles.Any(toggle => !toggle.Enabled) || form.fundsButton.Enabled)
+            throw new InvalidOperationException("A lost game session discarded or disabled staged options.");
+        log.WriteLine("PASS pre-game selection, linking without reset, and lost-session option retention.");
+        await form.StopAsync();
+        if (form.FeatureToggles.Any(toggle => toggle.Checked) || form.options != new TrainerOptions(
+            SpeedValue: 1.75, MuscleValue: 82, ReputationValue: 2300))
+            throw new InvalidOperationException("Disarm did not switch off every selected feature.");
+        log.WriteLine("PASS Disarm clears every feature, including fitness and reputation, without changing input values.");
+        foreach (int value in new[] { -1, 1000000001 })
+        {
+            try { new TrainerOptions(ReputationValue: value).Validate(); }
+            catch (ArgumentOutOfRangeException) { continue; }
+            throw new InvalidOperationException("Out-of-range reputation was accepted.");
+        }
+        var reputationOptions = new TrainerOptions(RankReputation: true, ReputationValue: 1500);
+        if (reputationOptions.ReputationTarget(45) != 1500 || reputationOptions.ReputationTarget(2400) != 2400)
+            throw new InvalidOperationException("Reputation floor would lower earned progress or fail to accelerate a low rank.");
+        log.WriteLine("PASS reputation rejects out-of-range input and never reduces earned progress.");
     }
 
     private void Post(Action action)
