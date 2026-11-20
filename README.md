@@ -1,6 +1,7 @@
 # Half Sword Trainer - The Fool's Favour
 
-A medieval jester-themed standalone trainer for **Half Sword 0.7.2**. Trainer version **1.3.0**.
+A medieval jester-themed standalone trainer for **Half Sword 0.7.0.3**
+(Steam build **26737211**). Trainer version **1.5.0**.
 
 See [CHANGELOG.md](./CHANGELOG.md) for version history.
 
@@ -144,6 +145,42 @@ best-effort file copy while the game is running, not an atomic save snapshot.
 To restore, close the game and copy the desired backup's contents back to the
 SaveGames folder. Keep a separate save backup before experimenting.
 
+### Repair recurring save bloat
+
+The **SAVE MAINTENANCE / REPAIR SAVE BLOAT** button is available without a game
+connection. Use it when `GameProgress.sav` has grown because the game's
+`Dead Opponents` array stores full defeated-character records, including large
+vertex-paint data:
+
+1. Exit Half Sword completely and let Steam Cloud finish syncing.
+2. Click **REPAIR SAVE BLOAT**. The trainer pauses listening without clearing
+   your staged options and shows the opponent count and expected file size.
+3. Confirm removal of the stored dead-opponent history. Keep the game closed
+   and do not start a cloud sync or another save editor during the repair.
+4. Wait for the verified result and backup location, then start the game.
+   **LINK TO GAME** resumes your staged trainer options.
+
+Each repair makes a fresh, SHA-256-verified copy of the original in
+`backups\save-repair-<timestamp>-<unique ID>\GameProgress.sav` beside the trainer.
+The repair sets only the top-level `Dead Opponents` array to empty and adjusts
+its serialized size. Every byte outside that array's payload and size field is
+compared with the original before atomic replacement; the installed file is
+then read back and verified. Funds, rank, inventory, the player character, and
+other save properties are not rewritten. If backup or preparation fails, the
+original is not replaced. An already-empty array is a no-op.
+
+This removes dead-opponent history, not just its paint blobs. Game mechanics
+that use those records may be affected. It does not stop the game accumulating
+new entries, so repeat the manual repair if bloat returns. Unsupported,
+ambiguous, or truncated save layouts are refused rather than guessed. The
+repair is for the verified UE5 GVAS format used by the supported game build,
+not a general save-file recovery tool.
+
+If needed, close the game and restore `GameProgress.sav` from the exact backup
+shown in the repair result. Other save files are never edited by this action.
+Steam Cloud can restore a different copy; resolve cloud conflicts deliberately
+instead of assuming the repaired file will always win.
+
 Errors appear in a dialog and in `trainer-errors.log` next to the executable.
 Settings are not persisted across trainer app launches. DISARM ALL clears
 switches, not numeric inputs. Automatic match reconnections and game restarts
@@ -166,6 +203,12 @@ Get-Content .\dist\current\verification.txt
 `--self-test` checks pre-game selection, linking/lost-session retention, disarm,
 reputation input/floor behavior, physique limits and nested-property bounds,
 menu-only availability, and the match-action layout without accessing the game.
+It also tests save-repair byte preservation, fresh backups, no-op behavior,
+malformed/unsupported saves, and aborts on backup failure or game launch using
+temporary fixtures; it never edits your save.
+`--verify-save-repair` repairs a temporary copy of your current `GameProgress.sav`,
+verifies the resulting size and backup, and checks that the original file's
+SHA-256 is unchanged. It does not replace the real save or require a running game.
 `--verify` validates live bindings, NPC targeting, and Force Win property
 bindings without writing, and reports the career physique source plus the
 spawned fighter's physique and mass scaling.
@@ -183,8 +226,9 @@ invulnerability. NPC injuries remain and the match outcome may change.
 The code discovers the name pool and object array in the module's data section,
 then resolves fields through Unreal reflection. It validates expected field
 types, sizes, bounds, and identities rather than using fixed gameplay offsets.
-The tested game executable has no version resource; "0.7.2" is its reported
-game version. Compatibility with another build is not guaranteed.
+The installed game executable has no version resource. This trainer was
+validated against Half Sword **0.7.0.3**, Steam build **26737211**. Compatibility
+with other builds is not guaranteed.
 
 The original multi-resolution application icon is embedded in the EXE and
 window. Regenerate its ICO/PNG assets with `.\tools\New-TrainerIcon.ps1`.

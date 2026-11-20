@@ -16,7 +16,7 @@ internal sealed class TrainerForm : Form
     };
     private readonly Button stop = new ActionButton { Text = "DISARM ALL", AccessibleName = "STOP / Restore", AutoSize = true, Enabled = false };
     private readonly Label connection = new() { Text = "Choose your options. Waiting for the game...", AutoSize = true };
-    private readonly Label values = new() { Text = "Local session  /  Game build 0.7.2", AutoSize = true };
+    private readonly Label values = new() { Text = "Local session  /  Game 0.7.0.3  /  Steam build 26737211", AutoSize = true };
     private readonly Label badge = new() { Text = "DISCONNECTED", AutoSize = false, TextAlign = ContentAlignment.MiddleCenter };
     private readonly VitalDisplay healthDisplay = new() { Text = "Health", Accent = Theme.Red };
     private readonly VitalDisplay staminaDisplay = new() { Text = "Stamina", Accent = Theme.Green };
@@ -48,6 +48,17 @@ internal sealed class TrainerForm : Form
         Text = "Career physique unavailable. Link to the game and leave the fight to apply.",
         Dock = DockStyle.Top, Height = 28, ForeColor = Theme.Muted, Padding = new Padding(0, 5, 0, 0)
     };
+    private readonly Button repairSaveButton = new ActionButton
+    {
+        Text = "REPAIR SAVE BLOAT", AccessibleName = "Repair save bloat (game closed)",
+        AccessibleDescription = "Backs up GameProgress.sav and clears stored dead-opponent history only. Requires Half Sword to be fully closed.",
+        AutoSize = false
+    };
+    private readonly Label repairSaveHint = new()
+    {
+        Text = "Close Half Sword first. Clears stored dead-opponent history only; a fresh backup is required.",
+        Dock = DockStyle.Fill, ForeColor = Theme.Muted, Padding = new Padding(0, 3, 0, 0)
+    };
     private readonly Panel controls = new() { AutoSize = true, Dock = DockStyle.Fill };
     private volatile TrainerOptions options = new();
     private int pendingFunds = -1;
@@ -56,6 +67,7 @@ internal sealed class TrainerForm : Form
     private CancellationTokenSource? cancellation;
     private Task? worker;
     private bool closing;
+    private bool repairingSave;
 
     public TrainerForm()
     {
@@ -121,6 +133,24 @@ internal sealed class TrainerForm : Form
         progression.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         progression.Controls.Add(ValueCard(reputation, reputationValue));
         features.Controls.Add(progression);
+        features.Controls.Add(Heading("SAVE MAINTENANCE", "GAME CLOSED / BACKUP REQUIRED"));
+        var maintenance = new SurfacePanel
+        {
+            Dock = DockStyle.Top, Height = 116, Margin = new Padding(0, 0, 8, 0), Padding = new Padding(12)
+        };
+        var maintenanceLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty
+        };
+        maintenanceLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        maintenanceLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+        maintenanceLayout.Controls.Add(repairSaveHint, 0, 0);
+        repairSaveButton.Dock = DockStyle.Right;
+        repairSaveButton.Width = 210;
+        repairSaveButton.Margin = Padding.Empty;
+        maintenanceLayout.Controls.Add(repairSaveButton, 0, 1);
+        maintenance.Controls.Add(maintenanceLayout);
+        features.Controls.Add(maintenance);
         controls.Controls.Add(features);
         controls.Dock = DockStyle.Top;
         arsenal.Controls.Add(controls);
@@ -129,7 +159,7 @@ internal sealed class TrainerForm : Form
         root.Controls.Add(body, 0, 1);
         root.Controls.Add(BuildFooter(), 0, 2);
         Controls.Add(root);
-        foreach (var button in new[] { attach, stop, fundsButton, forceWinButton, physiqueButton })
+        foreach (var button in new[] { attach, stop, fundsButton, forceWinButton, physiqueButton, repairSaveButton })
         {
             button.FlatStyle = FlatStyle.Flat;
             button.FlatAppearance.BorderColor = Theme.Border;
@@ -166,6 +196,7 @@ internal sealed class TrainerForm : Form
         reputationValue.ValueChanged += (_, _) => UpdateOptions();
         attach.Click += async (_, _) => await AttachAsync();
         stop.Click += async (_, _) => await StopAsync();
+        repairSaveButton.Click += async (_, _) => await RepairSaveAsync();
         fundsButton.Click += (_, _) =>
         {
             Interlocked.Exchange(ref pendingFunds, decimal.ToInt32(fundsValue.Value));
@@ -411,6 +442,55 @@ internal sealed class TrainerForm : Form
         muscle.Checked, (double)muscleValue.Value, exhaustion.Checked, temperature.Checked,
         reputation.Checked, decimal.ToInt32(reputationValue.Value));
 
+    private async Task RepairSaveAsync()
+    {
+        if (repairingSave) return;
+        repairingSave = true;
+        repairSaveButton.Enabled = false;
+        try
+        {
+            await StopAsync(false);
+            attach.Enabled = false;
+            SaveRepair.EnsureGameClosed();
+            var info = await Task.Run(() => SaveRepair.Inspect(SaveRepair.SavePath));
+            if (info.DeadOpponents == 0)
+            {
+                repairSaveHint.Text = $"Save {info.FileBytes / 1048576d:F2} MiB. Dead Opponents is already empty; no repair needed.";
+                MessageBox.Show(this, repairSaveHint.Text, "Save repair", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (MessageBox.Show(this,
+                $"GameProgress.sav: {info.FileBytes / 1048576d:F2} MiB\n" +
+                $"Stored dead opponents: {info.DeadOpponents:N0}\n" +
+                $"Expected repaired size: {info.RepairedBytes / 1048576d:F2} MiB\n\n" +
+                "This removes the stored dead-opponent history. Game systems using that history may be affected.\n" +
+                "All other saved data will be preserved byte-for-byte, with a fresh verified backup before replacement.\n\n" +
+                "Keep Half Sword closed until repair finishes. Continue?",
+                "Repair save bloat", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+                return;
+            repairSaveHint.Text = "Backing up, repairing and verifying the save. Keep Half Sword closed...";
+            var result = await Task.Run(SaveRepair.Repair);
+            repairSaveHint.Text = result.BackupPath == null ? "Dead Opponents is already empty; no file was changed." :
+                $"Removed {result.Before.DeadOpponents:N0} stored opponents. " +
+                $"{result.Before.FileBytes / 1048576d:F2} -> {result.Before.RepairedBytes / 1048576d:F2} MiB. Verified.";
+            MessageBox.Show(this, repairSaveHint.Text +
+                (result.BackupPath == null ? "" : $"\n\nBackup:\n{result.BackupPath}") +
+                "\n\nYou may now start Half Sword. LINK TO GAME resumes your staged trainer options.",
+                "Save repair complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            repairSaveHint.Text = "Save repair failed. See the error details before retrying.";
+            Report(ex);
+        }
+        finally
+        {
+            repairingSave = false;
+            repairSaveButton.Enabled = true;
+            attach.Enabled = cancellation == null;
+        }
+    }
+
     private async Task AttachAsync()
     {
         await StopAsync(false);
@@ -510,7 +590,7 @@ internal sealed class TrainerForm : Form
                     catch (Exception ex) { Report(ex); }
                     finally { trainer.Dispose(); }
                 }
-                Post(() => { SetFeatureAvailability(false); stop.Enabled = false; attach.Enabled = true; });
+                Post(() => { SetFeatureAvailability(false); stop.Enabled = false; attach.Enabled = !repairingSave; });
             }
         });
     }
@@ -530,13 +610,15 @@ internal sealed class TrainerForm : Form
             foreach (var toggle in FeatureToggles) toggle.Checked = false;
         SetConnection("All features off. Link to the game when you are ready.", "DISARMED", Theme.Muted);
         healthDisplay.Value = staminaDisplay.Value = consciousnessDisplay.Value = null;
-        values.Text = "Local session  /  Game build 0.7.2  /  Saves backed up before the first write";
+        values.Text = "Local session  /  Game 0.7.0.3  /  Steam build 26737211  /  Saves backed up before the first write";
     }
 
     internal static async Task VerifyStaging(TextWriter log)
     {
         using var form = new TrainerForm();
         form.SetFeatureAvailability(false);
+        if (!form.repairSaveButton.Enabled)
+            throw new InvalidOperationException("Offline save repair is unavailable without a game session.");
         if (form.FeatureToggles.Any(toggle => !toggle.Enabled) || !form.speedValue.Enabled ||
             !form.muscleValue.Enabled || !form.reputationValue.Enabled || !form.physiqueValue.Enabled ||
             form.fundsButton.Enabled || form.physiqueButton.Enabled)
@@ -559,9 +641,20 @@ internal sealed class TrainerForm : Form
                 button.Left < gap || button.Top < 0 ||
                 button.Right > row.ClientSize.Width - gap || button.Bottom > row.ClientSize.Height - gap)
                 throw new InvalidOperationException($"Force Win layout is clipped or crowded at {size}.");
+            var repair = form.repairSaveButton;
+            var repairRow = repair.Parent!;
+            var repairLabelSize = TextRenderer.MeasureText(repair.Text, repair.Font, Size.Empty, TextFormatFlags.SingleLine);
+            var hintSize = TextRenderer.MeasureText(form.repairSaveHint.Text, form.repairSaveHint.Font,
+                new Size(form.repairSaveHint.ClientSize.Width, int.MaxValue), TextFormatFlags.WordBreak);
+            if (repair.Width < repairLabelSize.Width + 2 * gap || repair.Height < repairLabelSize.Height ||
+                repair.Left < 0 || repair.Top < 0 ||
+                repair.Right > repairRow.ClientSize.Width || repair.Bottom > repairRow.ClientSize.Height ||
+                form.repairSaveHint.Height < hintSize.Height + form.repairSaveHint.Padding.Vertical)
+                throw new InvalidOperationException($"Offline save-repair button or explanation is clipped at {size}.");
         }
         form.Size = originalSize;
         log.WriteLine("PASS Force Win label and spacing at default and minimum window sizes.");
+        log.WriteLine("PASS offline save-repair button and explanation fit at default and minimum window sizes.");
         form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 35, 0, 1, 0, false, 0, 1, 0, 4.035, true));
         if (!form.physiqueButton.Enabled || form.physiqueValue.Value != 0.5m ||
             !form.physiqueHint.Text.Contains(Format(4.035)))
@@ -666,6 +759,11 @@ internal sealed class TrainerForm : Form
 
     private async void OnClosing(object? sender, FormClosingEventArgs e)
     {
+        if (repairingSave)
+        {
+            e.Cancel = true;
+            return;
+        }
         if (closing) return;
         e.Cancel = true;
         closing = true;

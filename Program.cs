@@ -12,7 +12,18 @@ internal static class Program
         {
             ApplicationConfiguration.Initialize();
             using var log = new StreamWriter(Path.Combine(AppContext.BaseDirectory, "verification.txt"));
-            try { TrainerForm.VerifyStaging(log).GetAwaiter().GetResult(); }
+            try
+            {
+                TrainerForm.VerifyStaging(log).GetAwaiter().GetResult();
+                SaveRepairTests.Verify(log);
+            }
+            catch (Exception ex) { log.WriteLine(ex); Environment.ExitCode = 1; }
+            return;
+        }
+        if (args.Length > 0 && args[0] == "--verify-save-repair")
+        {
+            using var log = new StreamWriter(Path.Combine(AppContext.BaseDirectory, "verification.txt")) { AutoFlush = true };
+            try { SaveRepairTests.VerifySaveCopy(log); }
             catch (Exception ex) { log.WriteLine(ex); Environment.ExitCode = 1; }
             return;
         }

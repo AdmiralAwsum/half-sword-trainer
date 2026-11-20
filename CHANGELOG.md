@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.5.0 - 2026-11-20
+
+- Added **REPAIR SAVE BLOAT**, an offline, confirmed repair that empties only
+  the top-level `Dead Opponents` array in `GameProgress.sav`.
+- Each repair creates and verifies a fresh original backup, preserves all
+  unrelated bytes, atomically replaces the save, and verifies the installed
+  result. Empty arrays are left alone; unsupported or damaged layouts are refused.
+- Refuses repair while the game is running and rechecks before replacement.
+  Listening is paused without losing staged trainer options.
+- Added focused safety tests and `--verify-save-repair`, which validates the
+  repair on a temporary copy without replacing the real save.
+- Updated the supported game version to Half Sword 0.7.0.3 (Steam build
+  26737211) and verified the live runtime bindings against the installed build.
+
+Validation: zero-warning Release build, staging/safety self-tests, and a real
+save copy reduced from 95,753,097 to 2,438,367 bytes (260 dead opponents removed),
+with byte preservation and original/backup hashes verified.
+
 ## v1.3.0 - 2026-11-15
 
 - Added a separate, menu-only career physique editor. It updates the next-spawn
