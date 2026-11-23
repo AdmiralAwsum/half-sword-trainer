@@ -16,22 +16,22 @@ internal sealed class TrainerForm : Form
     };
     private readonly Button stop = new ActionButton { Text = "DISARM ALL", AccessibleName = "STOP / Restore", AutoSize = true, Enabled = false };
     private readonly Label connection = new() { Text = "Choose your options. Waiting for the game...", AutoSize = true };
-    private readonly Label values = new() { Text = "Local session  /  Game 0.7.0.3  /  Steam build 26737211", AutoSize = true };
+    private readonly Label values = new() { Text = "Local session  /  Half Sword 0.7 Hotfix 4  /  Steam build 26820056", AutoSize = true };
     private readonly Label badge = new() { Text = "DISCONNECTED", AutoSize = false, TextAlign = ContentAlignment.MiddleCenter };
     private readonly VitalDisplay healthDisplay = new() { Text = "Health", Accent = Theme.Red };
     private readonly VitalDisplay staminaDisplay = new() { Text = "Stamina", Accent = Theme.Green };
     private readonly VitalDisplay consciousnessDisplay = new() { Text = "Consciousness", Accent = Theme.Gold };
-    private readonly CheckBox invulnerable = Toggle("Invulnerable", "Let their blades find nothing.");
-    private readonly CheckBox health = Toggle("Unlimited Health", "Keep flesh and bone at full health.");
-    private readonly CheckBox stamina = Toggle("Unlimited Stamina", "An endless appetite for battle.");
-    private readonly CheckBox consciousness = Toggle("Unlimited Consciousness", "Keep your wits. And your feet.");
-    private readonly CheckBox pain = Toggle("No Ball Or Liver Pain", "Some lessons need not be learned.");
-    private readonly CheckBox easyWin = Toggle("Easy Win", "Weaken foes. Deliver the final insult.", "Easy Win (weaken hostile NPCs)");
-    private readonly CheckBox exhaustion = Toggle("No Exhaustion", "Always rested and ready to fight.");
-    private readonly CheckBox temperature = Toggle("Ideal Temperature", "Neither freezing nor overheated.");
-    private readonly CheckBox speed = Toggle("Game Speed", "Set the world's pace.");
-    private readonly CheckBox muscle = Toggle("Motor Power", "Physics only. 35 is default.", "Muscle Power (physics motors)");
-    private readonly CheckBox reputation = Toggle("Reputation on Rank", "Hold a minimum. Tourneys refresh normally.");
+    private readonly CheckBox invulnerable = Toggle("Invulnerability", "Enables the game's built-in protection.");
+    private readonly CheckBox health = Toggle("Refill Health", "Refills body health and clears bleeding.");
+    private readonly CheckBox stamina = Toggle("Refill Stamina", "Keeps stamina at 100.");
+    private readonly CheckBox consciousness = Toggle("Stay Conscious", "Refills consciousness and its limits.");
+    private readonly CheckBox pain = Toggle("Clear Groin / Liver Pain", "Clears groin and liver pain.");
+    private readonly CheckBox easyWin = Toggle("Weaken Enemies", "Reduces hostile health, stamina and consciousness.");
+    private readonly CheckBox exhaustion = Toggle("No Exhaustion", "Keeps exhaustion at zero.");
+    private readonly CheckBox temperature = Toggle("Normal Temperature", "Keeps body temperature at the game's neutral value.");
+    private readonly CheckBox speed = Toggle("Game Speed", "Slows or speeds up the whole game.");
+    private readonly CheckBox muscle = Toggle("Joint Drive Force", "Joint force; experimental. Default 35.");
+    private readonly CheckBox reputation = Toggle("Minimum Rank Reputation", "Raises current rank reputation; never lowers it.");
     private readonly NumericUpDown speedValue = Number(0.1m, 5, 1, 2, 0.1m);
     private readonly NumericUpDown muscleValue = Number(0, 10000, 35, 2, 5);
     private readonly NumericUpDown fundsValue = Number(0, 1000000000, 0, 0, 100);
@@ -40,12 +40,12 @@ internal sealed class TrainerForm : Form
     private readonly Button fundsButton = new ActionButton { Text = "SET", AccessibleName = "Set Funds", AutoSize = false, Enabled = false };
     private readonly Button physiqueButton = new ActionButton
     {
-        Text = "SET", AccessibleName = "Set career physique for next spawn", AutoSize = false, Enabled = false,
+        Text = "SET", AccessibleName = "Set career body build for next spawn", AutoSize = false, Enabled = false,
         AccessibleDescription = "Apply outside a fight in career mode. Changes body build and mass on the next spawn and may persist in normal saves."
     };
     private readonly Label physiqueHint = new()
     {
-        Text = "Career physique unavailable. Link to the game and leave the fight to apply.",
+        Text = "Career body build unavailable. Link to the game and leave the fight to apply.",
         Dock = DockStyle.Top, Height = 28, ForeColor = Theme.Muted, Padding = new Padding(0, 5, 0, 0)
     };
     private readonly Button repairSaveButton = new ActionButton
@@ -60,6 +60,7 @@ internal sealed class TrainerForm : Form
         Dock = DockStyle.Fill, ForeColor = Theme.Muted, Padding = new Padding(0, 3, 0, 0)
     };
     private readonly Panel controls = new() { AutoSize = true, Dock = DockStyle.Fill };
+    private readonly ToolTip optionTips = new();
     private volatile TrainerOptions options = new();
     private int pendingFunds = -1;
     private int pendingForceWin;
@@ -105,31 +106,31 @@ internal sealed class TrainerForm : Form
         }
         arsenal.Controls.Add(vitals);
         var features = Stack();
-        features.Controls.Add(Heading("SURVIVAL", "THE BODY IS BUT A SUGGESTION"));
-        var toggles = new TableLayoutPanel { Dock = DockStyle.Top, Height = 296, ColumnCount = 2, RowCount = 4, Margin = Padding.Empty };
+        features.Controls.Add(Heading("SURVIVAL AND COMBAT", "APPLIES TO THE CURRENT FIGHT"));
+        var toggles = new TableLayoutPanel { Dock = DockStyle.Top, Height = 360, ColumnCount = 2, RowCount = 4, Margin = Padding.Empty };
         toggles.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         toggles.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         for (int i = 0; i < 4; i++) toggles.RowStyles.Add(new RowStyle(SizeType.Percent, 25));
         foreach (var toggle in new[] { invulnerable, health, stamina, consciousness, pain, easyWin, exhaustion, temperature })
             toggles.Controls.Add(toggle);
         features.Controls.Add(toggles);
-        features.Controls.Add(Heading("TIP THE SCALES", "A LITTLE OUTSIDE ASSISTANCE"));
-        var modifiers = new TableLayoutPanel { Dock = DockStyle.Top, Height = 135, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty };
+        features.Controls.Add(Heading("GAME AND PLAYER", "CHANGE VALUES WHILE PLAYING"));
+        var modifiers = new TableLayoutPanel { Dock = DockStyle.Top, Height = 165, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty };
         for (int i = 0; i < 3; i++) modifiers.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / 3));
         modifiers.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         modifiers.Controls.Add(ValueCard(speed, speedValue));
         modifiers.Controls.Add(ValueCard(muscle, muscleValue));
         modifiers.Controls.Add(ValueCard(null, fundsValue, fundsButton));
         features.Controls.Add(modifiers);
-        features.Controls.Add(Heading("CAREER PHYSIQUE", "SET IN MENU / NEXT SPAWN"));
+        features.Controls.Add(Heading("CAREER BODY BUILD", "SET IN MENU / NEXT SPAWN"));
         var physique = new TableLayoutPanel { Dock = DockStyle.Top, Height = 135, ColumnCount = 1, Margin = Padding.Empty };
         physique.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         physique.Controls.Add(ValueCard(null, physiqueValue, physiqueButton, "Body build",
             "0 lean / 0.5 default / 1 muscular. Changes mass as well as appearance."));
         features.Controls.Add(physique);
         features.Controls.Add(physiqueHint);
-        features.Controls.Add(Heading("RISE THROUGH THE RANKS", "1,500 COVERS THIS BUILD'S REP CHECKS"));
-        var progression = new TableLayoutPanel { Dock = DockStyle.Top, Height = 135, ColumnCount = 1, Margin = Padding.Empty };
+        features.Controls.Add(Heading("CAREER REPUTATION", "MINIMUM FOR THE CURRENT RANK"));
+        var progression = new TableLayoutPanel { Dock = DockStyle.Top, Height = 165, ColumnCount = 1, Margin = Padding.Empty };
         progression.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         progression.Controls.Add(ValueCard(reputation, reputationValue));
         features.Controls.Add(progression);
@@ -180,11 +181,25 @@ internal sealed class TrainerForm : Form
         physiqueButton.ForeColor = Theme.Gold;
         physiqueButton.Padding = Padding.Empty;
         speedValue.AccessibleName = "Game Speed Value";
-        muscleValue.AccessibleName = "Muscle Power Value";
-        muscleValue.AccessibleDescription = "Experimental physics-joint motor power, not body size. Default 35. Zero and extreme values may destabilize physics.";
+        muscleValue.AccessibleName = "Joint Drive Force Value";
+        muscleValue.AccessibleDescription = "Experimental physics-joint drive force, not muscle size or general strength. Default 35. Zero or extreme values may destabilize physics.";
         fundsValue.AccessibleName = "Funds Value";
-        reputationValue.AccessibleName = "Reputation on Rank Value";
-        physiqueValue.AccessibleName = "Career physique value";
+        reputationValue.AccessibleName = "Minimum Rank Reputation Value";
+        physiqueValue.AccessibleName = "Career body build value";
+        foreach (var feature in FeatureToggles.OfType<FeatureToggle>())
+            optionTips.SetToolTip(feature, feature.AccessibleDescription);
+        SetFeatureHelp(invulnerable, "Continuously enables the game's built-in invulnerability for your fighter.");
+        SetFeatureHelp(health, "Continuously refills general and body-part health and clears bleeding. Cannot resurrect or reattach limbs.");
+        SetFeatureHelp(consciousness, "Continuously refills consciousness, its cap, and leg consciousness to 100.");
+        SetFeatureHelp(pain, "Continuously clears the game's groin and liver pain values.");
+        SetFeatureHelp(easyWin, "Weakens living hostile fighters to at most 1 health and consciousness and 0 stamina. Finish them normally. Does not grant victory directly.");
+        SetFeatureHelp(temperature, "Holds body temperature at 1, the game's neutral default. Does not change equipment insulation.");
+        SetFeatureHelp(speed, "Holds overall game speed at the selected multiplier. Extreme values can destabilize physics.");
+        SetFeatureHelp(muscle, "Experimental: changes the force of physics-joint drives, not muscle size or general strength. Default 35. Zero or extreme values may destabilize physics.");
+        SetFeatureHelp(reputation, "Raises current rank reputation to at least the selected value; never lowers it. Events may need to refresh normally.");
+        optionTips.SetToolTip(forceWinButton, forceWinButton.AccessibleDescription);
+        optionTips.SetToolTip(repairSaveButton, repairSaveButton.AccessibleDescription);
+        optionTips.SetToolTip(physiqueButton, physiqueButton.AccessibleDescription);
         AutoScaleDimensions = new SizeF(96, 96);
         AutoScaleMode = AutoScaleMode.Dpi;
         SetFeatureAvailability(false);
@@ -206,7 +221,7 @@ internal sealed class TrainerForm : Form
         {
             Interlocked.Exchange(ref pendingPhysique, (double)physiqueValue.Value);
             physiqueButton.Enabled = false;
-            physiqueHint.Text = "Career physique write queued. Waiting for confirmation...";
+            physiqueHint.Text = "Career body build write queued. Waiting for confirmation...";
         };
         forceWinButton.Click += (_, _) =>
         {
@@ -227,8 +242,14 @@ internal sealed class TrainerForm : Form
 
     protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); Theme.DarkTitleBar(Handle); }
 
-    private static FeatureToggle Toggle(string text, string description, string? accessibleName = null) =>
-        new() { Text = text, Description = description, AccessibleName = accessibleName ?? text };
+    private static FeatureToggle Toggle(string text, string description) =>
+        new() { Text = text, Description = description, AccessibleName = text, AccessibleDescription = description };
+
+    private void SetFeatureHelp(CheckBox feature, string description)
+    {
+        feature.AccessibleDescription = description;
+        optionTips.SetToolTip(feature, description);
+    }
 
     private static TableLayoutPanel Stack() => new()
     {
@@ -323,7 +344,7 @@ internal sealed class TrainerForm : Form
     }
 
     private static Control ValueCard(CheckBox? toggle, NumericUpDown number, Button? button = null,
-        string title = "Funds", string description = "Coin makes a fine argument.")
+        string title = "Funds", string description = "Set your current money.")
     {
         var card = new SurfacePanel { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 8, 0), Padding = new Padding(10, 4, 10, 12) };
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1, Margin = Padding.Empty };
@@ -396,7 +417,7 @@ internal sealed class TrainerForm : Form
         {
             forceWinButton.Enabled = false;
             physiqueButton.Enabled = false;
-            physiqueHint.Text = "Career physique unavailable. Link to the game and leave the fight to apply.";
+            physiqueHint.Text = "Career body build unavailable. Link to the game and leave the fight to apply.";
         }
     }
 
@@ -610,7 +631,7 @@ internal sealed class TrainerForm : Form
             foreach (var toggle in FeatureToggles) toggle.Checked = false;
         SetConnection("All features off. Link to the game when you are ready.", "DISARMED", Theme.Muted);
         healthDisplay.Value = staminaDisplay.Value = consciousnessDisplay.Value = null;
-        values.Text = "Local session  /  Game 0.7.0.3  /  Steam build 26737211  /  Saves backed up before the first write";
+        values.Text = "Local session  /  Half Sword 0.7 Hotfix 4  /  Steam build 26820056  /  Saves backed up before the first write";
     }
 
     internal static async Task VerifyStaging(TextWriter log)
@@ -651,10 +672,14 @@ internal sealed class TrainerForm : Form
                 repair.Right > repairRow.ClientSize.Width || repair.Bottom > repairRow.ClientSize.Height ||
                 form.repairSaveHint.Height < hintSize.Height + form.repairSaveHint.Padding.Vertical)
                 throw new InvalidOperationException($"Offline save-repair button or explanation is clipped at {size}.");
+            foreach (var feature in form.FeatureToggles.OfType<FeatureToggle>())
+                if (!feature.TextFits())
+                    throw new InvalidOperationException($"Option '{feature.Text}' title or description is clipped at {size}.");
         }
         form.Size = originalSize;
         log.WriteLine("PASS Force Win label and spacing at default and minimum window sizes.");
         log.WriteLine("PASS offline save-repair button and explanation fit at default and minimum window sizes.");
+        log.WriteLine("PASS option titles and descriptions fit at default and minimum window sizes.");
         form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 35, 0, 1, 0, false, 0, 1, 0, 4.035, true));
         if (!form.physiqueButton.Enabled || form.physiqueValue.Value != 0.5m ||
             !form.physiqueHint.Text.Contains(Format(4.035)))
@@ -741,6 +766,12 @@ internal sealed class TrainerForm : Form
     private void Post(Action action)
     {
         if (!IsDisposed && IsHandleCreated) BeginInvoke(action);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) optionTips.Dispose();
+        base.Dispose(disposing);
     }
 
     private void Report(Exception ex)

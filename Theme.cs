@@ -118,6 +118,22 @@ internal sealed class FeatureToggle : CheckBox
     protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); Invalidate(); }
     protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); Invalidate(); }
 
+    internal bool TextFits()
+    {
+        float s = Theme.Scale(this);
+        int inset = (int)((Compact ? 5 : 15) * s);
+        int available = Width - inset * 2 - (int)(35 * s) - (int)(12 * s);
+        if (available <= 0) return false;
+        using var detail = new Font("Segoe UI", 8.25f);
+        var title = TextRenderer.MeasureText(Text, Font, Size.Empty,
+            TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+        var description = TextRenderer.MeasureText(Description, detail, new Size(available, int.MaxValue),
+            TextFormatFlags.WordBreak | TextFormatFlags.NoPadding);
+        return title.Width <= available && title.Height <= (int)(23 * s) &&
+            description.Width <= available && description.Height <= (int)(39 * s) &&
+            Height >= (int)(78 * s);
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         float s = Theme.Scale(this);
@@ -147,8 +163,8 @@ internal sealed class FeatureToggle : CheckBox
         TextRenderer.DrawText(g, Text, Font, new Rectangle(inset, (int)(13 * s), available, (int)(23 * s)),
             Enabled ? Theme.Parchment : Theme.Muted, TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
         using var detail = new Font("Segoe UI", 8.25f);
-        TextRenderer.DrawText(g, Description, detail, new Rectangle(inset, (int)(39 * s), available, (int)(21 * s)),
-            Theme.Muted, TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+        TextRenderer.DrawText(g, Description, detail, new Rectangle(inset, (int)(39 * s), available, (int)(39 * s)),
+            Theme.Muted, TextFormatFlags.EndEllipsis | TextFormatFlags.WordBreak | TextFormatFlags.NoPadding);
         if (Focused && ShowFocusCues)
             ControlPaint.DrawFocusRectangle(g, Rectangle.Inflate(ClientRectangle, -4, -4), Theme.Gold, BackColor);
     }

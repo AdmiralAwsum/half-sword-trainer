@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.6.0 - 2026-11-23
+
+- Updated compatibility information for Half Sword 0.7 Hotfix 4, Steam build
+  26820056, and checked fighter and match bindings against the running game.
+- Reworded options to explain what they do, including renaming Motor Power to
+  **Joint Drive Force** and clarifying its experimental physics-only role.
+- Added descriptive tooltips and layout checks for option labels.
+
+Validation: zero-warning Release build, UI and save-repair safety self-tests,
+read-only player, hostile and match bindings, and save-repair verification on
+a copy of the Hotfix 4 save. No gameplay writes or combat outcomes were tested.
+
 ## v1.5.0 - 2026-11-20
 
 - Added **REPAIR SAVE BLOAT**, an offline, confirmed repair that empties only

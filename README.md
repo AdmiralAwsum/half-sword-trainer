@@ -1,7 +1,7 @@
 # Half Sword Trainer - The Fool's Favour
 
-A medieval jester-themed standalone trainer for **Half Sword 0.7.0.3**
-(Steam build **26737211**). Trainer version **1.5.0**.
+A medieval jester-themed standalone trainer for **Half Sword 0.7 Hotfix 4**
+(Steam build **26820056**). Trainer version **1.6.0**.
 
 See [CHANGELOG.md](./CHANGELOG.md) for version history.
 
@@ -29,7 +29,8 @@ The combat-only **UNSTICK MATCH** action sits beside the live vital signs.
 The connection badge changes to **BETWEEN BOUTS** during loading and
 **WAITING FOR GAME** when the game is closed.
 Control cards scroll on shorter windows; standard keyboard focus and checkbox
-accessibility are retained. The portrait is embedded, so no image files need
+accessibility are retained. Hover over switches for more detail about their
+effects and limitations. The portrait is embedded, so no image files need
 to be installed separately.
 
 Open `HalfSwordTrainer.exe` from an extracted release (or
@@ -38,24 +39,24 @@ switches and numeric inputs are available immediately. Select combat features
 before entering a fight: they activate once the local player possesses a
 validated fighter. Funds and rank reputation work in menus once the game
 session is available; game speed works wherever an active world is available.
-Motor power is fighter-specific and waits for possession. Career physique is a
+Joint drive force is fighter-specific and waits for possession. Career body build is a
 separate, menu-only edit used by the next character spawn.
 Run at the same elevation as the game.
 Only one game instance may be running.
 
-* **Invulnerable**: continuously enables the player's built-in invulnerability.
-* **Unlimited Health**: replenishes general and eleven named body/crush health
+* **Invulnerability**: continuously enables the player's built-in invulnerability.
+* **Refill Health**: replenishes general and eleven named body/crush health
   values to 100 and clears bleeding. Cannot reattach severed limbs or resurrect
   an already dead character. Use before taking damage.
-* **Unlimited Stamina**: replenishes stamina to 100.
-* **Unlimited Consciousness**: replenishes consciousness, its cap, and leg
+* **Refill Stamina**: replenishes stamina to 100.
+* **Stay Conscious**: replenishes consciousness, its cap, and leg
   consciousness to 100.
-* **No Ball Or Liver Pain**: clears both pain values.
+* **Clear Groin / Liver Pain**: clears both pain values.
 * **No Exhaustion**: holds exhaustion at 0 (fully rested).
-* **Ideal Temperature**: holds temperature at 1, the character class's default
+* **Normal Temperature**: holds temperature at 1, the character class's default
   and neutral point in the game's temperature calculations. Does not change
   equipment heat retention.
-* **Easy Win**: holds living hostile NPCs in the player's level at no more than
+* **Weaken Enemies**: holds living hostile NPCs in the player's level at no more than
   1 health/consciousness and 0 stamina. Finish them normally. Does not grant a
   victory/reward directly. Excludes the possessed player and same-team allies;
   team 0 uses the game's free-for-all convention. Hostile NPC invulnerability
@@ -70,13 +71,14 @@ Only one game instance may be running.
   the current level.
 * **Game Speed**: check to hold global time dilation at 0.10–5.00x. Large values
   can destabilize physics.
-* **Motor Power** (formerly Muscle Power Value): experimental override of the
-  game's raw `Muscle Power` physics-joint drive parameter at 0–10,000, not a
-  muscle-size or general character-strength control. The observed default is
+* **Joint Drive Force** (formerly Motor Power): an experimental override of the
+  game's raw `Muscle Power` physics-joint drive parameter at 0–10,000. It
+  affects the force used by physics joints, not muscle size or general character
+  strength. Its gameplay effect is not fully understood. The observed default is
   **35**. Zero or extreme values may destabilize physics; leave this OFF unless
   intentionally experimenting. Disabling restores the previous raw value when
   possible, but cannot undo existing simulation motion or cached game state.
-* **Career Physique**: a separate one-shot body-build editor with a conservative
+* **Career Body Build**: a separate one-shot body-build editor with a conservative
   0–1 range: 0 lean, 0.5 the character default, 1 muscular. Leave the fight, apply
   **SET** in a career menu, then spawn into a new match. The readback shows the
   saved career value even when an existing character is outside the editor's
@@ -87,10 +89,10 @@ Only one game instance may be running.
   Free Mode is excluded. It is not a continuous hold, and normal game saves and
   subsequent character growth can persist or change it. DISARM ALL does not
   undo an already applied career physique; a save backup is made before writing.
-* **Funds Value**: **Set Funds** writes the live game-instance funds once.
+* **Funds**: **SET** writes the live game-instance funds once.
   The UI may update on reopening the relevant menu. Normal game saves may
   persist the change; the trainer does not force a save.
-* **Reputation on Rank**: while checked, raises the current rank's reputation
+* **Minimum Rank Reputation**: while checked, raises the current rank's reputation
   to at least the entered value; never lowers reputation you already earned.
   The default **1,500** meets the reputation comparisons found in this build's
   tournament generator (50/100/200/300/400/500/750/1,000/1,500). This removes
@@ -100,7 +102,7 @@ Only one game instance may be running.
   rank, or grant victories. Training/free modes may not use career progression.
 
 **STOP / Restore**, unchecking a feature, or closing the window stops holding
-values. Invulnerability, speed, and muscle power are restored if their objects
+values. Invulnerability, speed, and joint drive force are restored if their objects
 are still valid and the game has not independently changed those values.
 Health/stamina replenishment, fitness changes, NPC injuries, funds, and earned
 rank reputation and applied career physique are not undone. These can persist
@@ -200,7 +202,7 @@ Start-Process .\dist\current\HalfSwordTrainer.exe -ArgumentList '--verify' -Wait
 Get-Content .\dist\current\verification.txt
 ```
 
-`--self-test` checks pre-game selection, linking/lost-session retention, disarm,
+`--self-test` checks option text layout, pre-game selection, linking/lost-session retention, disarm,
 reputation input/floor behavior, physique limits and nested-property bounds,
 menu-only availability, and the match-action layout without accessing the game.
 It also tests save-repair byte preservation, fresh backups, no-op behavior,
@@ -212,23 +214,23 @@ SHA-256 is unchanged. It does not replace the real save or require a running gam
 `--verify` validates live bindings, NPC targeting, and Force Win property
 bindings without writing, and reports the career physique source plus the
 spawned fighter's physique and mass scaling.
-`--test-writes` briefly tests player stats, invulnerability, funds, muscle
-power, fitness, and speed with immediate readback, then restores and verifies
+`--test-writes` briefly tests player stats, invulnerability, funds, joint
+drive force, fitness, and speed with immediate readback, then restores and verifies
 original values. Without a possessed fighter, it tests menu funds and rank
 reputation writes with restoration instead. It does not damage NPCs or verify
 combat outcomes. Use only in a safe scene: the game continues running and may
 save during these tests.
 
 `--test-combat` requires a living hostile NPC. It briefly enables protection
-and Easy Win, checks player and opponent thresholds, then restores
+and Weaken Enemies, checks player and opponent thresholds, then restores
 invulnerability. NPC injuries remain and the match outcome may change.
 
 The code discovers the name pool and object array in the module's data section,
 then resolves fields through Unreal reflection. It validates expected field
 types, sizes, bounds, and identities rather than using fixed gameplay offsets.
-The installed game executable has no version resource. This trainer was
-validated against Half Sword **0.7.0.3**, Steam build **26737211**. Compatibility
-with other builds is not guaranteed.
+The installed game executable has no version resource. This trainer's live
+bindings were checked against Half Sword **0.7 Hotfix 4**, Steam build **26820056**.
+Compatibility with other builds is not guaranteed.
 
 The original multi-resolution application icon is embedded in the EXE and
 window. Regenerate its ICO/PNG assets with `.\tools\New-TrainerIcon.ps1`.

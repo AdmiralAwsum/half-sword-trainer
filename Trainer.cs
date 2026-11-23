@@ -490,7 +490,15 @@ internal sealed class Trainer : IDisposable
         log.WriteLine($"Spawned physique: Muscle Rate={Number(player, "Muscle Rate"):G}; mass scale={Number(player, "Mass Scale (Set in BP)"):G}");
         var hostiles = unreal.AllObjects().Where(o => o.Address != player.Address &&
             o.Outer == player.Outer && unreal.IsA(o, "Willie_BP_C") && Hostile(o)).ToList();
+        foreach (var hostile in hostiles)
+        {
+            unreal.EnsureLive(hostile);
+            foreach (string name in new[] { "Health", "Stamina", "Consciousness" })
+                _ = Number(hostile, name);
+            _ = BooleanProperty(hostile, "Invulnerable");
+        }
         log.WriteLine($"Hostile NPCs resolved: {hostiles.Count}; player excluded; same-team allies excluded.");
+        if (hostiles.Count > 0) log.WriteLine("PASS weaken-enemies health, stamina, consciousness and invulnerability bindings.");
         var matchBindings = ResolveForceWinBindings();
         log.WriteLine($"PASS force-win bindings: {matchBindings.Hostiles.Count} hostile character(s), {matchBindings.Controllers.Count} AI controller(s), game mode {(matchBindings.GameMode == null ? "optional/unavailable" : "validated")}.");
         if (!writeTest) return;
