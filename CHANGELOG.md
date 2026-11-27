@@ -6,6 +6,8 @@
 - Added **Strong Leg Joints** combat toggle: sets player-only `Bone Snapping` to `0` (reversibly, leaving hostile NPCs unaffected) to prevent hit-triggered knee/joint breaks, zeroes `Leg R/L Dislocation State`, `Leg R/L Strain`, and `Pain Leg R/L`, keeps `Consciousness 2 (Legs)` at `100` and `Legs Tonus Far Step` at `1`, and boosts `Leg R/L Tonus` to `2.5` for stiffer legs.
 - Expanded **Career Body Build** (`Player Character.Weight`) range from `0–1` to `0–10` (`0` lean, `0.5` default, `1` normal max, `2–10` overpowered mass and strength on next spawn).
 
+Validation: zero-warning Release build and publish, UI/staging/save-repair self-tests (`--self-test`) passed. Live `Willie_BP_C` property types/sizes and Blueprint bytecode verified against Half Sword 0.7 Hotfix 4; gameplay writes and combat outcomes were not tested.
+
 ## v1.6.0 - 2026-11-23
 
 - Updated compatibility information for Half Sword 0.7 Hotfix 4, Steam build
