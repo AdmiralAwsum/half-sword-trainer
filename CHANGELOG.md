@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.7.0 - 2026-11-27
+
+- Replaced **Joint Drive Force** (`Muscle Power`, which only drives `Dismembered Body Constraints` on severed limbs) with **Super Strength** (`1.0–50.0x`, default `3.0x`). Multiplies live physical-animation orientation/angular drive (`Orientation Strength`, `Angular Strength`), force ceilings (`Max Linear Force`, `Max Angular Force`), and grab limits (`R/L Grab Force Limit`), removes armor weight strength penalties (`Equipment Weight To Strength`, `Equipment Weight To Strength Upper` = `1`), and holds `All Body Tonus` (`100`) and upper/arm tonus (`>= 1`). Multiplied overrides restore cleanly to their original baselines when disabled.
+- Added **Strong Leg Joints** combat toggle: sets player-only `Bone Snapping` to `0` (reversibly, leaving hostile NPCs unaffected) to prevent hit-triggered knee/joint breaks, zeroes `Leg R/L Dislocation State`, `Leg R/L Strain`, and `Pain Leg R/L`, keeps `Consciousness 2 (Legs)` at `100` and `Legs Tonus Far Step` at `1`, and boosts `Leg R/L Tonus` to `2.5` for stiffer legs.
+- Expanded **Career Body Build** (`Player Character.Weight`) range from `0–1` to `0–10` (`0` lean, `0.5` default, `1` normal max, `2–10` overpowered mass and strength on next spawn).
+
 ## v1.6.0 - 2026-11-23
 
 - Updated compatibility information for Half Sword 0.7 Hotfix 4, Steam build

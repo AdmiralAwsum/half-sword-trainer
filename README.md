@@ -1,7 +1,7 @@
 # Half Sword Trainer - The Fool's Favour
 
 A medieval jester-themed standalone trainer for **Half Sword 0.7 Hotfix 4**
-(Steam build **26820056**). Trainer version **1.6.0**.
+(Steam build **26820056**). Trainer version **1.7.0**.
 
 See [CHANGELOG.md](./CHANGELOG.md) for version history.
 
@@ -39,8 +39,9 @@ switches and numeric inputs are available immediately. Select combat features
 before entering a fight: they activate once the local player possesses a
 validated fighter. Funds and rank reputation work in menus once the game
 session is available; game speed works wherever an active world is available.
-Joint drive force is fighter-specific and waits for possession. Career body build is a
-separate, menu-only edit used by the next character spawn.
+Super strength scales the active fighter's physical-animation drive and force
+limits once possessed. Career body build is a separate, menu-only edit used by
+the next character spawn.
 Run at the same elevation as the game.
 Only one game instance may be running.
 
@@ -56,6 +57,13 @@ Only one game instance may be running.
 * **Normal Temperature**: holds temperature at 1, the character class's default
   and neutral point in the game's temperature calculations. Does not change
   equipment heat retention.
+* **Strong Leg Joints**: prevents hit-triggered leg/joint breaks on the player by
+  reversibly holding the player's `Bone Snapping` multiplier at `0` (hostile
+  NPCs are unaffected), clears `Leg R/L Dislocation State`, `Leg R/L Strain`,
+  and `Pain Leg R/L`, keeps `Consciousness 2 (Legs)` at `100` and
+  `Legs Tonus Far Step` at `1`, and boosts `Leg R/L Tonus` to `2.5` for stiffer
+  leg resistance. Enable before taking leg hits; cannot repair an already-broken
+  joint.
 * **Weaken Enemies**: holds living hostile NPCs in the player's level at no more than
   1 health/consciousness and 0 stamina. Finish them normally. Does not grant a
   victory/reward directly. Excludes the possessed player and same-team allies;
@@ -71,24 +79,26 @@ Only one game instance may be running.
   the current level.
 * **Game Speed**: check to hold global time dilation at 0.10–5.00x. Large values
   can destabilize physics.
-* **Joint Drive Force** (formerly Motor Power): an experimental override of the
-  game's raw `Muscle Power` physics-joint drive parameter at 0–10,000. It
-  affects the force used by physics joints, not muscle size or general character
-  strength. Its gameplay effect is not fully understood. The observed default is
-  **35**. Zero or extreme values may destabilize physics; leave this OFF unless
-  intentionally experimenting. Disabling restores the previous raw value when
-  possible, but cannot undo existing simulation motion or cached game state.
-* **Career Body Build**: a separate one-shot body-build editor with a conservative
-  0–1 range: 0 lean, 0.5 the character default, 1 muscular. Leave the fight, apply
-  **SET** in a career menu, then spawn into a new match. The readback shows the
-  saved career value even when an existing character is outside the editor's
-  range; simply viewing it never clamps that value. This changes only
-  `Player Character.Weight` in the game instance, not the current fighter's
-  morphs, mass, or joints. The game rebuilds those together on the next spawn.
-  Body mass and strength-related calculations can change as well as appearance.
-  Free Mode is excluded. It is not a continuous hold, and normal game saves and
-  subsequent character growth can persist or change it. DISARM ALL does not
-  undo an already applied career physique; a save backup is made before writing.
+* **Super Strength**: multiplies the active fighter's physical-animation drive
+  and force limits (`Orientation Strength`, `Angular Strength`,
+  `Max Linear Force`, `Max Angular Force`, and `R/L Grab Force Limit`) by
+  **1.0–50.0x** (default **3.0x**), removes armor weight penalties
+  (`Equipment Weight To Strength`, `Equipment Weight To Strength Upper` = `1`),
+  and holds `All Body Tonus` (`100`) and upper-body/arm tonus (`>= 1`). Extreme
+  multipliers can destabilize physics. Disabling restores the multiplied
+  baseline parameters when the fighter object is still valid.
+* **Career Body Build**: a separate one-shot body-build editor with an expanded
+  **0–10** range: `0` lean, `0.5` the character default, `1` normal maximum, and
+  `2–10` overpowered. Leave the fight, apply **SET** in a career menu, then
+  spawn into a new match. The readback shows the saved career value even when an
+  existing character is outside the editor's range; simply viewing it never
+  clamps that value. This changes only `Player Character.Weight` in the game
+  instance, not the current fighter's morphs, mass, or joints. The game rebuilds
+  those together on the next spawn. Body mass and strength-related calculations
+  can change as well as appearance. Free Mode is excluded. It is not a
+  continuous hold, and normal game saves and subsequent character growth can
+  persist or change it. DISARM ALL does not undo an already applied career
+  physique; a save backup is made before writing.
 * **Funds**: **SET** writes the live game-instance funds once.
   The UI may update on reopening the relevant menu. Normal game saves may
   persist the change; the trainer does not force a save.
@@ -102,8 +112,9 @@ Only one game instance may be running.
   rank, or grant victories. Training/free modes may not use career progression.
 
 **STOP / Restore**, unchecking a feature, or closing the window stops holding
-values. Invulnerability, speed, and joint drive force are restored if their objects
-are still valid and the game has not independently changed those values.
+values. Invulnerability, speed, super strength drive/force limits, and
+`Bone Snapping` are restored if their objects are still valid and the game has
+not independently changed those values.
 Health/stamina replenishment, fitness changes, NPC injuries, funds, and earned
 rank reputation and applied career physique are not undone. These can persist
 through normal saves.
@@ -214,9 +225,9 @@ SHA-256 is unchanged. It does not replace the real save or require a running gam
 `--verify` validates live bindings, NPC targeting, and Force Win property
 bindings without writing, and reports the career physique source plus the
 spawned fighter's physique and mass scaling.
-`--test-writes` briefly tests player stats, invulnerability, funds, joint
-drive force, fitness, and speed with immediate readback, then restores and verifies
-original values. Without a possessed fighter, it tests menu funds and rank
+`--test-writes` briefly tests player stats, invulnerability, funds, super
+strength, strong leg joints, fitness, and speed with immediate readback, then
+restores and verifies original values. Without a possessed fighter, it tests menu funds and rank
 reputation writes with restoration instead. It does not damage NPCs or verify
 combat outcomes. Use only in a safe scene: the game continues running and may
 save during these tests.

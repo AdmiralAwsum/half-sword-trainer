@@ -30,13 +30,14 @@ internal sealed class TrainerForm : Form
     private readonly CheckBox exhaustion = Toggle("No Exhaustion", "Keeps exhaustion at zero.");
     private readonly CheckBox temperature = Toggle("Normal Temperature", "Keeps body temperature at the game's neutral value.");
     private readonly CheckBox speed = Toggle("Game Speed", "Slows or speeds up the whole game.");
-    private readonly CheckBox muscle = Toggle("Joint Drive Force", "Joint force; experimental. Default 35.");
+    private readonly CheckBox strength = Toggle("Super Strength", "Body, swing & grip force (x).");
+    private readonly CheckBox strongLegs = Toggle("Strong Leg Joints", "Blocks leg dislocation & reinforces legs.");
     private readonly CheckBox reputation = Toggle("Minimum Rank Reputation", "Raises current rank reputation; never lowers it.");
     private readonly NumericUpDown speedValue = Number(0.1m, 5, 1, 2, 0.1m);
-    private readonly NumericUpDown muscleValue = Number(0, 10000, 35, 2, 5);
+    private readonly NumericUpDown strengthValue = Number(1, 50, 3, 1, 0.5m);
     private readonly NumericUpDown fundsValue = Number(0, 1000000000, 0, 0, 100);
     private readonly NumericUpDown reputationValue = Number(0, 1000000000, 1500, 0, 50);
-    private readonly NumericUpDown physiqueValue = Number(0, 1, 0.5m, 2, 0.05m);
+    private readonly NumericUpDown physiqueValue = Number(0, 10, 0.5m, 2, 0.25m);
     private readonly Button fundsButton = new ActionButton { Text = "SET", AccessibleName = "Set Funds", AutoSize = false, Enabled = false };
     private readonly Button physiqueButton = new ActionButton
     {
@@ -107,26 +108,28 @@ internal sealed class TrainerForm : Form
         arsenal.Controls.Add(vitals);
         var features = Stack();
         features.Controls.Add(Heading("SURVIVAL AND COMBAT", "APPLIES TO THE CURRENT FIGHT"));
-        var toggles = new TableLayoutPanel { Dock = DockStyle.Top, Height = 360, ColumnCount = 2, RowCount = 4, Margin = Padding.Empty };
+        var toggles = new TableLayoutPanel { Dock = DockStyle.Top, Height = 450, ColumnCount = 2, RowCount = 5, Margin = Padding.Empty };
         toggles.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         toggles.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        for (int i = 0; i < 4; i++) toggles.RowStyles.Add(new RowStyle(SizeType.Percent, 25));
+        for (int i = 0; i < 5; i++) toggles.RowStyles.Add(new RowStyle(SizeType.Percent, 20));
         foreach (var toggle in new[] { invulnerable, health, stamina, consciousness, pain, easyWin, exhaustion, temperature })
             toggles.Controls.Add(toggle);
+        toggles.Controls.Add(strongLegs, 0, 4);
+        toggles.SetColumnSpan(strongLegs, 2);
         features.Controls.Add(toggles);
         features.Controls.Add(Heading("GAME AND PLAYER", "CHANGE VALUES WHILE PLAYING"));
         var modifiers = new TableLayoutPanel { Dock = DockStyle.Top, Height = 165, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty };
         for (int i = 0; i < 3; i++) modifiers.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / 3));
         modifiers.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         modifiers.Controls.Add(ValueCard(speed, speedValue));
-        modifiers.Controls.Add(ValueCard(muscle, muscleValue));
+        modifiers.Controls.Add(ValueCard(strength, strengthValue));
         modifiers.Controls.Add(ValueCard(null, fundsValue, fundsButton));
         features.Controls.Add(modifiers);
         features.Controls.Add(Heading("CAREER BODY BUILD", "SET IN MENU / NEXT SPAWN"));
         var physique = new TableLayoutPanel { Dock = DockStyle.Top, Height = 135, ColumnCount = 1, Margin = Padding.Empty };
         physique.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         physique.Controls.Add(ValueCard(null, physiqueValue, physiqueButton, "Body build",
-            "0 lean / 0.5 default / 1 muscular. Changes mass as well as appearance."));
+            "0 lean / 0.5 default / 1 max normal / 2-10 overpowered. Changes mass & strength."));
         features.Controls.Add(physique);
         features.Controls.Add(physiqueHint);
         features.Controls.Add(Heading("CAREER REPUTATION", "MINIMUM FOR THE CURRENT RANK"));
@@ -181,8 +184,8 @@ internal sealed class TrainerForm : Form
         physiqueButton.ForeColor = Theme.Gold;
         physiqueButton.Padding = Padding.Empty;
         speedValue.AccessibleName = "Game Speed Value";
-        muscleValue.AccessibleName = "Joint Drive Force Value";
-        muscleValue.AccessibleDescription = "Experimental physics-joint drive force, not muscle size or general strength. Default 35. Zero or extreme values may destabilize physics.";
+        strengthValue.AccessibleName = "Super Strength Multiplier";
+        strengthValue.AccessibleDescription = "Multiplies physical-animation joint stiffness, angular drive, max linear/angular force, and grab force. Default 3x (range 1-50x). Extreme values may destabilize physics.";
         fundsValue.AccessibleName = "Funds Value";
         reputationValue.AccessibleName = "Minimum Rank Reputation Value";
         physiqueValue.AccessibleName = "Career body build value";
@@ -192,10 +195,11 @@ internal sealed class TrainerForm : Form
         SetFeatureHelp(health, "Continuously refills general and body-part health and clears bleeding. Cannot resurrect or reattach limbs.");
         SetFeatureHelp(consciousness, "Continuously refills consciousness, its cap, and leg consciousness to 100.");
         SetFeatureHelp(pain, "Continuously clears the game's groin and liver pain values.");
+        SetFeatureHelp(strongLegs, "Sets player-only Bone Snapping to 0 to prevent hit-triggered leg/joint breaks (enemies unaffected), clears leg dislocation state, strain, and leg pain, and boosts leg joint stiffness (2.5x tonus). Enable before taking damage; cannot repair an already-broken joint.");
         SetFeatureHelp(easyWin, "Weakens living hostile fighters to at most 1 health and consciousness and 0 stamina. Finish them normally. Does not grant victory directly.");
         SetFeatureHelp(temperature, "Holds body temperature at 1, the game's neutral default. Does not change equipment insulation.");
         SetFeatureHelp(speed, "Holds overall game speed at the selected multiplier. Extreme values can destabilize physics.");
-        SetFeatureHelp(muscle, "Experimental: changes the force of physics-joint drives, not muscle size or general strength. Default 35. Zero or extreme values may destabilize physics.");
+        SetFeatureHelp(strength, "Multiplies physical-animation orientation/angular drive, max linear/angular force, and grab strength across your body, and removes armor weight penalties. Default 3x (1-50x). Extreme values can destabilize physics.");
         SetFeatureHelp(reputation, "Raises current rank reputation to at least the selected value; never lowers it. Events may need to refresh normally.");
         optionTips.SetToolTip(forceWinButton, forceWinButton.AccessibleDescription);
         optionTips.SetToolTip(repairSaveButton, repairSaveButton.AccessibleDescription);
@@ -207,7 +211,7 @@ internal sealed class TrainerForm : Form
         foreach (var toggle in FeatureToggles)
             toggle.CheckedChanged += (_, _) => UpdateOptions();
         speedValue.ValueChanged += (_, _) => UpdateOptions();
-        muscleValue.ValueChanged += (_, _) => UpdateOptions();
+        strengthValue.ValueChanged += (_, _) => UpdateOptions();
         reputationValue.ValueChanged += (_, _) => UpdateOptions();
         attach.Click += async (_, _) => await AttachAsync();
         stop.Click += async (_, _) => await StopAsync();
@@ -430,8 +434,8 @@ internal sealed class TrainerForm : Form
         SetFeatureAvailability(false);
     }
 
-    private CheckBox[] FeatureToggles => [invulnerable, health, stamina, consciousness, pain, easyWin, speed, muscle,
-        exhaustion, temperature, reputation];
+    private CheckBox[] FeatureToggles => [invulnerable, health, stamina, consciousness, pain, strongLegs, easyWin,
+        speed, strength, exhaustion, temperature, reputation];
 
     private void ShowStatus(TrainerStatus status)
     {
@@ -460,7 +464,7 @@ internal sealed class TrainerForm : Form
 
     private void UpdateOptions() => options = new(invulnerable.Checked, health.Checked, stamina.Checked,
         consciousness.Checked, pain.Checked, easyWin.Checked, speed.Checked, (double)speedValue.Value,
-        muscle.Checked, (double)muscleValue.Value, exhaustion.Checked, temperature.Checked,
+        strength.Checked, (double)strengthValue.Value, strongLegs.Checked, exhaustion.Checked, temperature.Checked,
         reputation.Checked, decimal.ToInt32(reputationValue.Value));
 
     private async Task RepairSaveAsync()
@@ -641,10 +645,10 @@ internal sealed class TrainerForm : Form
         if (!form.repairSaveButton.Enabled)
             throw new InvalidOperationException("Offline save repair is unavailable without a game session.");
         if (form.FeatureToggles.Any(toggle => !toggle.Enabled) || !form.speedValue.Enabled ||
-            !form.muscleValue.Enabled || !form.reputationValue.Enabled || !form.physiqueValue.Enabled ||
+            !form.strengthValue.Enabled || !form.reputationValue.Enabled || !form.physiqueValue.Enabled ||
             form.fundsButton.Enabled || form.physiqueButton.Enabled)
             throw new InvalidOperationException("Pre-game options or session-only funds availability are incorrect.");
-        form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 35, 0, 1, 0, false, 0, 1, 0));
+        form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 1000, 0, 1, 0, false, 0, 1, 0));
         if (form.forceWinButton.Enabled) throw new InvalidOperationException("Force Win is enabled without an active fighter.");
         if (form.forceWinButton.Parent?.AccessibleName != "Combat match actions" || !form.forceWinButton.Danger)
             throw new InvalidOperationException("Force Win is not presented as a danger action beside live combat status.");
@@ -680,16 +684,16 @@ internal sealed class TrainerForm : Form
         log.WriteLine("PASS Force Win label and spacing at default and minimum window sizes.");
         log.WriteLine("PASS offline save-repair button and explanation fit at default and minimum window sizes.");
         log.WriteLine("PASS option titles and descriptions fit at default and minimum window sizes.");
-        form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 35, 0, 1, 0, false, 0, 1, 0, 4.035, true));
+        form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 1000, 0, 1, 0, false, 0, 1, 0, 4.035, true));
         if (!form.physiqueButton.Enabled || form.physiqueValue.Value != 0.5m ||
             !form.physiqueHint.Text.Contains(Format(4.035)))
             throw new InvalidOperationException("Menu physique editing or unclamped saved-value readback is incorrect.");
-        form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 35, 0, 1, 0, false, 0, 1, 0, 0.5, false));
+        form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 1000, 0, 1, 0, false, 0, 1, 0, 0.5, false));
         if (form.physiqueButton.Enabled) throw new InvalidOperationException("Physique editing is enabled outside a supported career menu.");
-        form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 35, 0, 1, 0, true, 0, 1, 0, 0.5, true));
+        form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 1000, 0, 1, 0, true, 0, 1, 0, 0.5, true));
         if (form.physiqueButton.Enabled) throw new InvalidOperationException("Physique editing is enabled with an active fighter.");
-        foreach (double value in new[] { 0d, 0.5, 1d }) Trainer.ValidateCareerPhysique(value);
-        foreach (double value in new[] { -0.01, 1.01, double.NaN, double.PositiveInfinity })
+        foreach (double value in new[] { 0d, 0.5, 1d, 4d, 10d }) Trainer.ValidateCareerPhysique(value);
+        foreach (double value in new[] { -0.01, 10.01, double.NaN, double.PositiveInfinity })
         {
             try { Trainer.ValidateCareerPhysique(value); }
             catch (ArgumentOutOfRangeException) { continue; }
@@ -714,14 +718,14 @@ internal sealed class TrainerForm : Form
             throw new InvalidOperationException("An invalid nested physique layout was accepted.");
         }
         log.WriteLine("PASS nested physique type, struct bounds, and containing-object bounds.");
-        form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 35, 0, 1, 0, true, 0, 1, 0));
+        form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 1000, 0, 1, 0, true, 0, 1, 0));
         if (!form.forceWinButton.Enabled) throw new InvalidOperationException("Force Win is disabled with an active fighter.");
         form.SetFeatureAvailability(false);
         if (form.forceWinButton.Enabled) throw new InvalidOperationException("Force Win remains enabled after losing the game session.");
         foreach (var (absent, state) in new[] { (false, "BETWEEN BOUTS"), (true, "WAITING FOR GAME") })
         {
             form.SetFeatureAvailability(true);
-            form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 35, 0, 1, 0, true, 0, 1, 0));
+            form.ShowStatus(new TrainerStatus("test", 100, 100, 100, 1000, 0, 1, 0, true, 0, 1, 0));
             form.ShowWaitingState(absent, state);
             if (form.forceWinButton.Enabled || form.fundsButton.Enabled || form.physiqueButton.Enabled || form.badge.Text != state)
                 throw new InvalidOperationException($"Session actions remain available while {state}.");
@@ -729,7 +733,7 @@ internal sealed class TrainerForm : Form
         log.WriteLine("PASS session actions are disabled during scene changes and game exit.");
         foreach (var toggle in form.FeatureToggles) toggle.Checked = true;
         form.speedValue.Value = 1.75m;
-        form.muscleValue.Value = 82;
+        form.strengthValue.Value = 8.5m;
         form.reputationValue.Value = 2300;
         var staged = form.options;
         form.pendingPhysique = 0.75;
@@ -737,8 +741,9 @@ internal sealed class TrainerForm : Form
         if (form.pendingPhysique != -1 || form.physiqueButton.Enabled)
             throw new InvalidOperationException("Relinking retained a one-shot physique request.");
         if (form.options != staged || !form.options.NoExhaustion || !form.options.Temperature ||
-            !form.options.RankReputation || form.options.ReputationValue != 2300 ||
-            form.options.SpeedValue != 1.75 || form.options.MuscleValue != 82)
+            !form.options.RankReputation || !form.options.SuperStrength || !form.options.StrongLegJoints ||
+            form.options.ReputationValue != 2300 ||
+            form.options.SpeedValue != 1.75 || form.options.StrengthMultiplier != 8.5)
             throw new InvalidOperationException("Linking discarded preselected options or modifier values.");
         form.SetFeatureAvailability(true);
         form.SetFeatureAvailability(false);
@@ -747,9 +752,18 @@ internal sealed class TrainerForm : Form
         log.WriteLine("PASS pre-game selection, linking without reset, and lost-session option retention.");
         await form.StopAsync();
         if (form.FeatureToggles.Any(toggle => toggle.Checked) || form.options != new TrainerOptions(
-            SpeedValue: 1.75, MuscleValue: 82, ReputationValue: 2300))
+            SpeedValue: 1.75, StrengthMultiplier: 8.5, ReputationValue: 2300))
             throw new InvalidOperationException("Disarm did not switch off every selected feature.");
         log.WriteLine("PASS Disarm clears every feature, including fitness and reputation, without changing input values.");
+        foreach (double value in new[] { 1d, 3d, 50d })
+            new TrainerOptions(SuperStrength: true, StrengthMultiplier: value).Validate();
+        foreach (double value in new[] { 0.99, 50.01, double.NaN, double.PositiveInfinity })
+        {
+            try { new TrainerOptions(SuperStrength: true, StrengthMultiplier: value).Validate(); }
+            catch (ArgumentOutOfRangeException) { continue; }
+            throw new InvalidOperationException("An invalid strength multiplier was accepted.");
+        }
+        log.WriteLine("PASS Super Strength multiplier limits.");
         foreach (int value in new[] { -1, 1000000001 })
         {
             try { new TrainerOptions(ReputationValue: value).Validate(); }

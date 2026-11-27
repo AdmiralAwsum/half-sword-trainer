@@ -2,22 +2,23 @@ namespace HalfSwordTrainer;
 
 internal sealed record TrainerOptions(bool Invulnerable = false, bool Health = false, bool Stamina = false,
     bool Consciousness = false, bool NoPain = false, bool EasyWin = false,
-    bool Speed = false, double SpeedValue = 1, bool Muscle = false, double MuscleValue = 35,
-    bool NoExhaustion = false, bool Temperature = false, bool RankReputation = false, int ReputationValue = 1500)
+    bool Speed = false, double SpeedValue = 1, bool SuperStrength = false, double StrengthMultiplier = 3,
+    bool StrongLegJoints = false, bool NoExhaustion = false, bool Temperature = false,
+    bool RankReputation = false, int ReputationValue = 1500)
 {
     public void Validate()
     {
         if (!double.IsFinite(SpeedValue) || SpeedValue is < 0.1 or > 5 ||
-            !double.IsFinite(MuscleValue) || MuscleValue is < 0 or > 10000 ||
+            !double.IsFinite(StrengthMultiplier) || StrengthMultiplier is < 1 or > 50 ||
             ReputationValue is < 0 or > 1000000000)
-            throw new ArgumentOutOfRangeException(nameof(TrainerOptions), "Speed must be 0.1-5; muscle power 0-10,000; rank reputation 0-1,000,000,000.");
+            throw new ArgumentOutOfRangeException(nameof(TrainerOptions), "Speed must be 0.1-5; strength multiplier 1-50; rank reputation 0-1,000,000,000.");
     }
 
     public int ReputationTarget(int current) => Math.Max(current, ReputationValue);
 }
 
 internal sealed record TrainerStatus(string Message, double? Health, double? Stamina, double? Consciousness,
-    double? Muscle, int Funds, double? Speed, int Opponents, bool CombatReady,
+    double? Strength, int Funds, double? Speed, int Opponents, bool CombatReady,
     double? Exhaustion, double? Temperature, int RankReputation,
     double? CareerPhysique = null, bool PhysiqueEditable = false);
 
@@ -49,6 +50,13 @@ internal sealed class Trainer : IDisposable
         "Heart Health", "Head Health (Crush)"];
     private static readonly string[] ConsciousnessNames = ["Consciousness", "Consciousness Cap", "Consciousness 2 (Legs)"];
     private static readonly string[] PainNames = ["Ball Pain", "Liver Pain"];
+    private static readonly string[] StrengthDoubleNames = ["Orientation Strength", "Angular Strength",
+        "R Grab Force Limit", "L Grab Force Limit"];
+    private static readonly string[] StrengthFloatNames = ["Max Linear Force", "Max Angular Force"];
+    private static readonly string[] StrengthTonusNames = ["Upper Body Tonus", "Arm R Tonus", "Arm L Tonus"];
+    private static readonly string[] LegZeroNames = ["Leg R Dislocation State", "Leg L Dislocation State",
+        "Leg R Strain", "Leg L Strain", "Pain Leg R", "Pain Leg L"];
+    private static readonly string[] LegTonusNames = ["Leg R Tonus", "Leg L Tonus"];
 
     public Trainer(Action<string>? notify = null, string? backupPath = null,
         GameProcessIdentity? previouslyValidatedProcess = null)
@@ -126,8 +134,14 @@ internal sealed class Trainer : IDisposable
         unreal.EnsureLive(player);
         if (world != null) unreal.EnsureLive(world);
         unreal.EnsureLive(instance);
-        foreach (string name in HealthNames.Concat(ConsciousnessNames).Concat(PainNames).Concat(["Stamina", "Muscle Power", "Bleeding", "Exhaustion", "Temperature"]))
+        foreach (string name in HealthNames.Concat(ConsciousnessNames).Concat(PainNames)
+            .Concat(StrengthDoubleNames).Concat(StrengthTonusNames).Concat(LegZeroNames).Concat(LegTonusNames)
+            .Concat(["Stamina", "Bleeding", "Exhaustion", "Temperature", "All Body Tonus",
+                "Equipment Weight To Strength", "Equipment Weight To Strength Upper",
+                "Bone Snapping", "Legs Tonus Far Step"]))
             _ = DoubleProperty(player, name);
+        foreach (string name in StrengthFloatNames)
+            _ = FloatProperty(player, name);
         _ = unreal.Property(player, "Invulnerable", "BoolProperty");
         _ = unreal.Property(player, "Team Int", "IntProperty");
         _ = unreal.Property(player, "Player", "BoolProperty");
@@ -143,12 +157,36 @@ internal sealed class Trainer : IDisposable
         return p;
     }
 
+    private GameProperty FloatProperty(GameObject obj, string name)
+    {
+        var p = unreal.Property(obj, name, "FloatProperty");
+        if (p.Size != 4) throw new InvalidOperationException($"Unexpected float size for {name}.");
+        return p;
+    }
+
     public double Number(GameObject obj, string name)
     {
         var value = memory.Read<double>(obj.Address + DoubleProperty(obj, name).Offset);
         if (!double.IsFinite(value)) throw new InvalidOperationException($"Invalid numeric value: {name}.");
         return value;
     }
+
+    public float SingleNumber(GameObject obj, string name)
+    {
+        var value = memory.Read<float>(obj.Address + FloatProperty(obj, name).Offset);
+        if (!float.IsFinite(value)) throw new InvalidOperationException($"Invalid float value: {name}.");
+        return value;
+    }
+
+    private double BaselineDouble(GameObject obj, string name) =>
+        overrides.TryGetValue((obj.Address, name), out var entry)
+            ? BitConverter.ToDouble(entry.Original)
+            : Number(obj, name);
+
+    private float BaselineFloat(GameObject obj, string name) =>
+        overrides.TryGetValue((obj.Address, name), out var entry)
+            ? BitConverter.ToSingle(entry.Original)
+            : SingleNumber(obj, name);
 
     private void EnsurePlayer()
     {
@@ -200,6 +238,9 @@ internal sealed class Trainer : IDisposable
 
     private void Set(GameObject obj, string name, double value, bool reversible = false) =>
         Put(obj, DoubleProperty(obj, name), BitConverter.GetBytes(value), reversible);
+
+    private void SetFloat(GameObject obj, string name, float value, bool reversible = false) =>
+        Put(obj, FloatProperty(obj, name), BitConverter.GetBytes(value), reversible);
 
     private void SetInvulnerable(bool enabled)
     {
@@ -357,7 +398,32 @@ internal sealed class Trainer : IDisposable
             foreach (string name in ConsciousnessNames) Set(player, name, 100);
         if (options.NoPain)
             foreach (string name in PainNames) Set(player, name, 0);
-        if (options.Muscle) Set(player, "Muscle Power", options.MuscleValue, true); else Restore("Muscle Power");
+        if (options.SuperStrength)
+        {
+            foreach (string name in StrengthDoubleNames)
+                Set(player, name, BaselineDouble(player, name) * options.StrengthMultiplier, true);
+            foreach (string name in StrengthFloatNames)
+                SetFloat(player, name, (float)(BaselineFloat(player, name) * options.StrengthMultiplier), true);
+            Set(player, "Equipment Weight To Strength", 1);
+            Set(player, "Equipment Weight To Strength Upper", 1);
+            Set(player, "All Body Tonus", 100);
+            foreach (string name in StrengthTonusNames)
+                Set(player, name, Math.Max(Number(player, name), 1));
+        }
+        else
+        {
+            foreach (string name in StrengthDoubleNames.Concat(StrengthFloatNames))
+                Restore(name);
+        }
+        if (options.StrongLegJoints)
+        {
+            Set(player, "Bone Snapping", 0, true);
+            foreach (string name in LegZeroNames) Set(player, name, 0);
+            Set(player, "Consciousness 2 (Legs)", 100);
+            Set(player, "Legs Tonus Far Step", 1);
+            foreach (string name in LegTonusNames) Set(player, name, 2.5);
+        }
+        else Restore("Bone Snapping");
         if (options.EasyWin)
         {
             if (DateTime.UtcNow >= nextOpponentScan)
@@ -433,8 +499,8 @@ internal sealed class Trainer : IDisposable
 
     internal static void ValidateCareerPhysique(double value)
     {
-        if (!double.IsFinite(value) || value is < 0 or > 1)
-            throw new ArgumentOutOfRangeException(nameof(value), "Career physique must be between 0 and 1.");
+        if (!double.IsFinite(value) || value is < 0 or > 10)
+            throw new ArgumentOutOfRangeException(nameof(value), "Career physique must be between 0 and 10.");
     }
 
     public void SetCareerPhysique(double value)
@@ -469,7 +535,7 @@ internal sealed class Trainer : IDisposable
             combat == null ? null : Number(player, "Health"),
             combat == null ? null : Number(player, "Stamina"),
             combat == null ? null : Number(player, "Consciousness"),
-            combat == null ? null : Number(player, "Muscle Power"), funds, speed, opponents.Count, combat != null,
+            combat == null ? null : Number(player, "Orientation Strength"), funds, speed, opponents.Count, combat != null,
             combat == null ? null : Number(player, "Exhaustion"), combat == null ? null : Number(player, "Temperature"), reputation,
             physique, CanEditCareerPhysique());
     }
@@ -485,8 +551,13 @@ internal sealed class Trainer : IDisposable
             if (writeTest) VerifySessionWrites(log);
             return;
         }
-        foreach (string name in HealthNames.Concat(ConsciousnessNames).Concat(PainNames).Concat(["Stamina", "Muscle Power", "Exhaustion", "Temperature"]))
+        foreach (string name in HealthNames.Concat(ConsciousnessNames).Concat(PainNames)
+            .Concat(StrengthDoubleNames).Concat(StrengthTonusNames).Concat(LegZeroNames).Concat(LegTonusNames)
+            .Concat(["Stamina", "Exhaustion", "Temperature", "Bone Snapping", "Legs Tonus Far Step",
+                "Equipment Weight To Strength", "Equipment Weight To Strength Upper"]))
             log.WriteLine($"{name}: {Number(player, name):F3}");
+        foreach (string name in StrengthFloatNames)
+            log.WriteLine($"{name}: {SingleNumber(player, name):F3}");
         log.WriteLine($"Spawned physique: Muscle Rate={Number(player, "Muscle Rate"):G}; mass scale={Number(player, "Mass Scale (Set in BP)"):G}");
         var hostiles = unreal.AllObjects().Where(o => o.Address != player.Address &&
             o.Outer == player.Outer && unreal.IsA(o, "Willie_BP_C") && Hostile(o)).ToList();
@@ -520,20 +591,34 @@ internal sealed class Trainer : IDisposable
             foreach (string name in HealthNames.Concat(ConsciousnessNames).Concat(["Stamina"]))
                 Check(player, DoubleProperty(player, name), BitConverter.GetBytes(100d));
             foreach (string name in PainNames) Check(player, DoubleProperty(player, name), BitConverter.GetBytes(0d));
-            Check(player, DoubleProperty(player, "Muscle Power"), BitConverter.GetBytes(Number(player, "Muscle Power") + 1));
+            foreach (string name in StrengthDoubleNames)
+                Check(player, DoubleProperty(player, name), BitConverter.GetBytes(Number(player, name) + 1));
+            foreach (string name in StrengthFloatNames)
+                Check(player, FloatProperty(player, name), BitConverter.GetBytes(SingleNumber(player, name) + 1f));
+            Check(player, DoubleProperty(player, "Bone Snapping"), BitConverter.GetBytes(0d));
+            Check(player, DoubleProperty(player, "Leg R Dislocation State"), BitConverter.GetBytes(0d));
+            Check(player, DoubleProperty(player, "Leg L Dislocation State"), BitConverter.GetBytes(0d));
+            Check(player, DoubleProperty(player, "Leg R Tonus"), BitConverter.GetBytes(2.5d));
+            Check(player, DoubleProperty(player, "Leg L Tonus"), BitConverter.GetBytes(2.5d));
             Check(settings, unreal.Property(settings, "TimeDilation", "FloatProperty"), BitConverter.GetBytes(1.1f));
             int funds = Status().Funds;
             Check(instance, unreal.Property(instance, "Player Funds", "IntProperty"), BitConverter.GetBytes(funds == 1000000000 ? funds - 1 : funds + 1));
+            double expectedOrientation = Number(player, "Orientation Strength") * 2;
             var options = new TrainerOptions(Invulnerable: true, Health: true, Stamina: true, Consciousness: true,
-                NoPain: true, Speed: true, SpeedValue: 1.1, Muscle: true, MuscleValue: 36, NoExhaustion: true, Temperature: true);
+                NoPain: true, Speed: true, SpeedValue: 1.1, SuperStrength: true, StrengthMultiplier: 2,
+                StrongLegJoints: true, NoExhaustion: true, Temperature: true);
             for (int i = 0; i < 20; i++)
             {
                 Apply(options);
                 var status = Status();
                 if (status.Health < 99 || status.Stamina < 99 || status.Consciousness < 99 ||
-                    status.Muscle != 36 || status.Speed == null || Math.Abs(status.Speed.Value - 1.1) > 0.0001 ||
+                    status.Strength == null || Math.Abs(status.Strength.Value - expectedOrientation) > 0.001 ||
+                    status.Speed == null || Math.Abs(status.Speed.Value - 1.1) > 0.0001 ||
                     status.Exhaustion is null or > 0.01 || status.Temperature is null ||
                     Math.Abs(status.Temperature.Value - 1) > 0.05 ||
+                    Number(player, "Bone Snapping") != 0 ||
+                    Number(player, "Leg R Dislocation State") != 0 || Number(player, "Leg L Dislocation State") != 0 ||
+                    Number(player, "Leg R Tonus") < 2.4 || Number(player, "Leg L Tonus") < 2.4 ||
                     PainNames.Any(name => Number(player, name) != 0) ||
                     HealthNames.Any(name => Number(player, name) < 99))
                     throw new InvalidOperationException("Continuous trainer application did not maintain requested thresholds.");
@@ -541,7 +626,7 @@ internal sealed class Trainer : IDisposable
             }
             Apply(new TrainerOptions());
             if (overrides.Count != 0) throw new InvalidOperationException("Disabling features left outstanding overrides.");
-            log.WriteLine("PASS 20 continuous Apply cycles: health/stamina/consciousness >=99, body health >=99, pain 0, speed 1.1x, muscle 36.");
+            log.WriteLine("PASS 20 continuous Apply cycles: health/stamina/consciousness >=99, body health >=99, pain 0, speed 1.1x, strength 2x, strong leg joints.");
             log.WriteLine("PASS feature disable restored tracked overrides.");
             log.WriteLine("PASS all requested player/value bindings. Easy Win targeting verified read-only; NPC damage not tested.");
         }
